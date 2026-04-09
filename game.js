@@ -16,238 +16,243 @@ window.addEventListener('resize', resizeCanvas);
 let audioCtx = null;
 let musicPlaying = false;
 let musicNodes = {};
+let audioUnlocked = false;
 const BPM = 95;
 const BEAT = 60 / BPM;
 
-function initAudio() {
-  if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  // iOS requires a silent buffer played from a touch event to unlock audio
-  const silentBuf = audioCtx.createBuffer(1, 1, 22050);
-  const src = audioCtx.createBufferSource();
-  src.buffer = silentBuf;
-  src.connect(audioCtx.destination);
-  src.start(0);
+function unlockAudio() {
+  if (audioUnlocked) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // Play silent buffer to unlock on iOS
+    const buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start(0);
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    audioUnlocked = true;
+  } catch (e) { /* audio not supported */ }
 }
 
-// Eagerly init audio on first user interaction (needed for mobile)
-function earlyInitAudio() {
-  initAudio();
-  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-}
-document.addEventListener('touchstart', earlyInitAudio, { once: true });
-document.addEventListener('mousedown', earlyInitAudio, { once: true });
-document.addEventListener('keydown', earlyInitAudio, { once: true });
+// Unlock audio on ANY user interaction
+['touchstart', 'touchend', 'mousedown', 'click', 'keydown'].forEach(evt => {
+  document.addEventListener(evt, unlockAudio, { capture: true });
+});
 
 function startMusic() {
   if (musicPlaying) return;
-  initAudio();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  try {
+    unlockAudio();
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => actuallyStartMusic());
+    } else {
+      actuallyStartMusic();
+    }
+  } catch (e) { /* audio failed, game still works */ }
+}
+
+function actuallyStartMusic() {
+  if (musicPlaying) return;
   musicPlaying = true;
 
   const master = audioCtx.createGain();
-  master.gain.value = 0.45;
+  master.gain.setValueAtTime(0.5, audioCtx.currentTime);
   master.connect(audioCtx.destination);
   musicNodes.master = master;
 
-  // Compressor for punch
-  const comp = audioCtx.createDynamicsCompressor();
-  comp.threshold.value = -18;
-  comp.ratio.value = 6;
-  comp.connect(master);
-  musicNodes.comp = comp;
-
-  loopBeat(comp);
-  loopBass(comp);
-  loopMelody(comp);
-  loopHiHat(comp);
+  loopBeat(master);
+  loopBass(master);
+  loopMelody(master);
+  loopHiHat(master);
 }
 
 function stopMusic() {
   musicPlaying = false;
   if (musicNodes.master) {
-    musicNodes.master.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+    try {
+      musicNodes.master.gain.setValueAtTime(musicNodes.master.gain.value, audioCtx.currentTime);
+      musicNodes.master.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+    } catch (e) {}
   }
-  // Clear all scheduled timeouts
-  if (musicNodes.beatTimeout) clearTimeout(musicNodes.beatTimeout);
-  if (musicNodes.bassTimeout) clearTimeout(musicNodes.bassTimeout);
-  if (musicNodes.melodyTimeout) clearTimeout(musicNodes.melodyTimeout);
-  if (musicNodes.hihatTimeout) clearTimeout(musicNodes.hihatTimeout);
+  clearTimeout(musicNodes.beatTimeout);
+  clearTimeout(musicNodes.bassTimeout);
+  clearTimeout(musicNodes.melodyTimeout);
+  clearTimeout(musicNodes.hihatTimeout);
   musicNodes = {};
 }
 
 function playKick(dest, time) {
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(150, time);
-  osc.frequency.exponentialRampToValueAtTime(30, time + 0.12);
-  gain.gain.setValueAtTime(0.9, time);
-  gain.gain.exponentialRampToValueAtTime(0.01, time + 0.25);
-  osc.connect(gain);
-  gain.connect(dest);
-  osc.start(time);
-  osc.stop(time + 0.25);
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, time);
+    osc.frequency.exponentialRampToValueAtTime(30, time + 0.12);
+    gain.gain.setValueAtTime(1, time);
+    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.25);
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start(time);
+    osc.stop(time + 0.25);
+  } catch (e) {}
 }
 
 function playSnare(dest, time) {
-  // noise burst
-  const bufSize = audioCtx.sampleRate * 0.1;
-  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
-  const noise = audioCtx.createBufferSource();
-  noise.buffer = buf;
-  const noiseGain = audioCtx.createGain();
-  noiseGain.gain.setValueAtTime(0.6, time);
-  noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.12);
-  const filt = audioCtx.createBiquadFilter();
-  filt.type = 'highpass';
-  filt.frequency.value = 1500;
-  noise.connect(filt);
-  filt.connect(noiseGain);
-  noiseGain.connect(dest);
-  noise.start(time);
-  noise.stop(time + 0.12);
+  try {
+    const bufSize = audioCtx.sampleRate * 0.1;
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(0.7, time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.12);
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 1500;
+    noise.connect(filt);
+    filt.connect(noiseGain);
+    noiseGain.connect(dest);
+    noise.start(time);
+    noise.stop(time + 0.12);
 
-  // body
-  const osc = audioCtx.createOscillator();
-  const oscGain = audioCtx.createGain();
-  osc.type = 'triangle';
-  osc.frequency.setValueAtTime(180, time);
-  osc.frequency.exponentialRampToValueAtTime(80, time + 0.08);
-  oscGain.gain.setValueAtTime(0.5, time);
-  oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
-  osc.connect(oscGain);
-  oscGain.connect(dest);
-  osc.start(time);
-  osc.stop(time + 0.1);
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(180, time);
+    osc.frequency.exponentialRampToValueAtTime(80, time + 0.08);
+    oscGain.gain.setValueAtTime(0.6, time);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+    osc.connect(oscGain);
+    oscGain.connect(dest);
+    osc.start(time);
+    osc.stop(time + 0.1);
+  } catch (e) {}
 }
 
 function playHiHat(dest, time, open) {
-  const bufSize = audioCtx.sampleRate * (open ? 0.08 : 0.03);
-  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
-  const noise = audioCtx.createBufferSource();
-  noise.buffer = buf;
-  const gain = audioCtx.createGain();
-  gain.gain.setValueAtTime(open ? 0.15 : 0.12, time);
-  gain.gain.exponentialRampToValueAtTime(0.01, time + (open ? 0.08 : 0.03));
-  const filt = audioCtx.createBiquadFilter();
-  filt.type = 'bandpass';
-  filt.frequency.value = 8000;
-  filt.Q.value = 2;
-  noise.connect(filt);
-  filt.connect(gain);
-  gain.connect(dest);
-  noise.start(time);
-  noise.stop(time + (open ? 0.08 : 0.03));
+  try {
+    const dur = open ? 0.08 : 0.04;
+    const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * dur));
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(open ? 0.18 : 0.14, time);
+    gain.gain.exponentialRampToValueAtTime(0.01, time + dur);
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 8000;
+    filt.Q.value = 2;
+    noise.connect(filt);
+    filt.connect(gain);
+    gain.connect(dest);
+    noise.start(time);
+    noise.stop(time + dur);
+  } catch (e) {}
 }
 
 // Drum loop: classic boom-bap pattern
 function loopBeat(dest) {
   if (!musicPlaying) return;
-  const t = audioCtx.currentTime + 0.05;
-  // 4 beats per bar, 2 bars
-  // Pattern: K...S...K.K.S...
-  playKick(dest, t);
-  playSnare(dest, t + BEAT);
-  playKick(dest, t + BEAT * 2);
-  playKick(dest, t + BEAT * 2.5);
-  playSnare(dest, t + BEAT * 3);
-  // bar 2
-  playKick(dest, t + BEAT * 4);
-  playSnare(dest, t + BEAT * 5);
-  playKick(dest, t + BEAT * 6);
-  playKick(dest, t + BEAT * 6.75);
-  playSnare(dest, t + BEAT * 7);
-
-  musicNodes.beatTimeout = setTimeout(() => loopBeat(dest), BEAT * 8 * 1000);
+  try {
+    const t = audioCtx.currentTime + 0.1;
+    playKick(dest, t);
+    playSnare(dest, t + BEAT);
+    playKick(dest, t + BEAT * 2);
+    playKick(dest, t + BEAT * 2.5);
+    playSnare(dest, t + BEAT * 3);
+    playKick(dest, t + BEAT * 4);
+    playSnare(dest, t + BEAT * 5);
+    playKick(dest, t + BEAT * 6);
+    playKick(dest, t + BEAT * 6.75);
+    playSnare(dest, t + BEAT * 7);
+  } catch (e) {}
+  musicNodes.beatTimeout = setTimeout(() => loopBeat(dest), BEAT * 8 * 1000 - 100);
 }
 
-// Bass line: trap-style sub bass
+// Bass line
 function loopBass(dest) {
   if (!musicPlaying) return;
-  const t = audioCtx.currentTime + 0.05;
-  // E minor pentatonic bass notes
-  const notes = [82.41, 98, 82.41, 73.42, 82.41, 110, 98, 82.41];
-  const rhythm = [0, 1, 2, 3, 4, 5, 6, 7];
-
-  for (let i = 0; i < notes.length; i++) {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.value = notes[i];
-    const filt = audioCtx.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.frequency.value = 200;
-    filt.Q.value = 5;
-    gain.gain.setValueAtTime(0.35, t + rhythm[i] * BEAT);
-    gain.gain.exponentialRampToValueAtTime(0.01, t + rhythm[i] * BEAT + BEAT * 0.8);
-    osc.connect(filt);
-    filt.connect(gain);
-    gain.connect(dest);
-    osc.start(t + rhythm[i] * BEAT);
-    osc.stop(t + rhythm[i] * BEAT + BEAT * 0.85);
-  }
-
-  musicNodes.bassTimeout = setTimeout(() => loopBass(dest), BEAT * 8 * 1000);
+  try {
+    const t = audioCtx.currentTime + 0.1;
+    const notes = [82.41, 98, 82.41, 73.42, 82.41, 110, 98, 82.41];
+    for (let i = 0; i < notes.length; i++) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = notes[i];
+      const filt = audioCtx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 200;
+      filt.Q.value = 5;
+      gain.gain.setValueAtTime(0.4, t + i * BEAT);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + i * BEAT + BEAT * 0.8);
+      osc.connect(filt);
+      filt.connect(gain);
+      gain.connect(dest);
+      osc.start(t + i * BEAT);
+      osc.stop(t + i * BEAT + BEAT * 0.85);
+    }
+  } catch (e) {}
+  musicNodes.bassTimeout = setTimeout(() => loopBass(dest), BEAT * 8 * 1000 - 100);
 }
 
 // Melody: dark minor key synth
 function loopMelody(dest) {
   if (!musicPlaying) return;
-  const t = audioCtx.currentTime + 0.05;
-  // E minor melody pattern
-  const melodyNotes = [329.63, 392, 440, 392, 329.63, 293.66, 329.63, 0];
-  const durations =   [1,      0.5, 0.5, 1,   0.5,    0.5,    1.5,    1.5];
-  let offset = 0;
-
-  for (let i = 0; i < melodyNotes.length; i++) {
-    if (melodyNotes[i] > 0) {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = melodyNotes[i];
-      // Detuned slightly for richness
-      const osc2 = audioCtx.createOscillator();
-      osc2.type = 'sawtooth';
-      osc2.frequency.value = melodyNotes[i] * 1.003;
-      const filt = audioCtx.createBiquadFilter();
-      filt.type = 'lowpass';
-      filt.frequency.value = 1200;
-
-      gain.gain.setValueAtTime(0, t + offset * BEAT);
-      gain.gain.linearRampToValueAtTime(0.08, t + offset * BEAT + 0.03);
-      gain.gain.setValueAtTime(0.08, t + (offset + durations[i] * 0.7) * BEAT);
-      gain.gain.linearRampToValueAtTime(0.001, t + (offset + durations[i]) * BEAT);
-
-      osc.connect(filt);
-      osc2.connect(filt);
-      filt.connect(gain);
-      gain.connect(dest);
-      osc.start(t + offset * BEAT);
-      osc.stop(t + (offset + durations[i]) * BEAT + 0.01);
-      osc2.start(t + offset * BEAT);
-      osc2.stop(t + (offset + durations[i]) * BEAT + 0.01);
+  try {
+    const t = audioCtx.currentTime + 0.1;
+    const melodyNotes = [329.63, 392, 440, 392, 329.63, 293.66, 329.63, 0];
+    const durations =   [1,      0.5, 0.5, 1,   0.5,    0.5,    1.5,    1.5];
+    let offset = 0;
+    for (let i = 0; i < melodyNotes.length; i++) {
+      if (melodyNotes[i] > 0) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = melodyNotes[i];
+        const osc2 = audioCtx.createOscillator();
+        osc2.type = 'sawtooth';
+        osc2.frequency.value = melodyNotes[i] * 1.003;
+        const filt = audioCtx.createBiquadFilter();
+        filt.type = 'lowpass';
+        filt.frequency.value = 1200;
+        gain.gain.setValueAtTime(0.001, t + offset * BEAT);
+        gain.gain.linearRampToValueAtTime(0.1, t + offset * BEAT + 0.03);
+        gain.gain.setValueAtTime(0.1, t + (offset + durations[i] * 0.7) * BEAT);
+        gain.gain.linearRampToValueAtTime(0.001, t + (offset + durations[i]) * BEAT);
+        osc.connect(filt);
+        osc2.connect(filt);
+        filt.connect(gain);
+        gain.connect(dest);
+        osc.start(t + offset * BEAT);
+        osc.stop(t + (offset + durations[i]) * BEAT + 0.01);
+        osc2.start(t + offset * BEAT);
+        osc2.stop(t + (offset + durations[i]) * BEAT + 0.01);
+      }
+      offset += durations[i];
     }
-    offset += durations[i];
-  }
-
-  musicNodes.melodyTimeout = setTimeout(() => loopMelody(dest), BEAT * 8 * 1000 - 50);
+  } catch (e) {}
+  musicNodes.melodyTimeout = setTimeout(() => loopMelody(dest), BEAT * 8 * 1000 - 100);
 }
 
-// Hi-hat pattern: eighth notes with some open hats
+// Hi-hat pattern
 function loopHiHat(dest) {
   if (!musicPlaying) return;
-  const t = audioCtx.currentTime + 0.05;
-  // 16 eighth notes over 8 beats (every half beat)
-  for (let i = 0; i < 16; i++) {
-    const open = (i === 3 || i === 7 || i === 11 || i === 15);
-    playHiHat(dest, t + i * BEAT * 0.5, open);
-  }
-  musicNodes.hihatTimeout = setTimeout(() => loopHiHat(dest), BEAT * 8 * 1000);
+  try {
+    const t = audioCtx.currentTime + 0.1;
+    for (let i = 0; i < 16; i++) {
+      const open = (i === 3 || i === 7 || i === 11 || i === 15);
+      playHiHat(dest, t + i * BEAT * 0.5, open);
+    }
+  } catch (e) {}
+  musicNodes.hihatTimeout = setTimeout(() => loopHiHat(dest), BEAT * 8 * 1000 - 100);
 }
 
 // --- Game state ---
@@ -286,6 +291,7 @@ let jumpPressed = false;
 let jumpHeld = false;
 
 function doJump() {
+  unlockAudio();
   if (state === STATE.START) { startGame(); return; }
   if (state === STATE.DEAD) return;
   if (player.jumpsLeft > 0) {
