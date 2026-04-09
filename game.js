@@ -2140,6 +2140,13 @@ function drawCarShield(p, walkOffset) {
   const carX = p.x + p.w / 2;
   const carY = p.y + p.h;
 
+  // Scale car up so it's bigger than cops
+  const carScale = 1.7;
+  const groundY = carY + 16; // bottom of wheels
+  ctx.translate(carX, groundY);
+  ctx.scale(carScale, carScale);
+  ctx.translate(-carX, -groundY);
+
   // Shadow under car
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
