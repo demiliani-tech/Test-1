@@ -273,6 +273,9 @@ const player = {
   batCooldown: 0, // frames until bat can hit again
   gunTimer: 0, // frames until next shot
   hasShield: false, // car shield (one hit protection)
+  batSwing: 0, // frames of bat swing animation
+  muzzleFlash: 0, // frames of muzzle flash
+  carCrash: 0, // frames of car crash animation
 };
 
 const GRAVITY = 0.55;
@@ -357,6 +360,9 @@ function startGame() {
   player.batCooldown = 0;
   player.gunTimer = 0;
   player.hasShield = false;
+  player.batSwing = 0;
+  player.muzzleFlash = 0;
+  player.carCrash = 0;
   nextShopDistance = SHOP_INTERVAL;
   chainsBought = 0;
   shopSelection = -1;
@@ -680,6 +686,9 @@ function update() {
   player.y += player.vy;
   if (player.invincible > 0) player.invincible--;
   if (player.batCooldown > 0) player.batCooldown--;
+  if (player.batSwing > 0) player.batSwing--;
+  if (player.muzzleFlash > 0) player.muzzleFlash--;
+  if (player.carCrash > 0) player.carCrash--;
 
   // Gun auto-fire: shoots at first visible enemy when cooldown is up
   if (player.weaponTier >= 2) {
@@ -833,29 +842,38 @@ function update() {
         ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
       }
       if (rectOverlap(pb, ob)) {
-        // Bat hits cops and K-9 on contact FIRST (30s cooldown)
+        // Bat hits cops and K-9 on contact FIRST (20s cooldown)
         if (player.weaponTier >= 1 && player.batCooldown <= 0 && (o.type === 'cop' || o.type === 'k9')) {
           player.batCooldown = 1200; // 20 seconds at 60fps
+          player.batSwing = 15; // swing animation
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
           obstacles.splice(oi, 1);
           score += 200;
-          playHitSound();
+          playBatCrack();
           updateScoreUI();
           continue;
         }
         // Car shield absorbs one hit then breaks
         if (player.hasShield) {
           player.hasShield = false;
+          player.carCrash = 25; // crash animation
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
-          // Red car-breaking particles
-          for (let pi = 0; pi < 12; pi++) {
-            particles.push({ x: player.x + player.w / 2, y: player.y + player.h / 2,
-              vx: (Math.random() - 0.5) * 8, vy: -2 - Math.random() * 5,
-              alpha: 1, size: 4 + Math.random() * 6, color: Math.random() < 0.5 ? '#ff2222' : '#cc0000', life: 40 });
+          // Big car-breaking particle explosion
+          for (let pi = 0; pi < 20; pi++) {
+            const colors = ['#ff2222', '#cc0000', '#ff6600', '#ffaa00', '#880000', '#444'];
+            particles.push({ x: player.x + player.w / 2 + (Math.random() - 0.5) * 30, y: player.y + player.h / 2,
+              vx: (Math.random() - 0.5) * 12, vy: -3 - Math.random() * 7,
+              alpha: 1, size: 4 + Math.random() * 8, color: colors[Math.floor(Math.random() * colors.length)], life: 50 });
+          }
+          // Glass shards
+          for (let pi = 0; pi < 8; pi++) {
+            particles.push({ x: player.x + player.w / 2, y: player.y + player.h * 0.3,
+              vx: (Math.random() - 0.5) * 10, vy: -2 - Math.random() * 4,
+              alpha: 0.8, size: 2 + Math.random() * 3, color: '#aaddff', life: 35 });
           }
           obstacles.splice(oi, 1);
           player.invincible = 30;
-          playHitSound();
+          playCarCrash();
           continue;
         }
         killPlayer();
@@ -898,6 +916,126 @@ function playShopSound() {
       osc.start(t + i * 0.08);
       osc.stop(t + i * 0.08 + 0.2);
     }
+  } catch (e) {}
+}
+
+function playBatCrack() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    // Sharp crack (wood hitting)
+    const crackLen = Math.floor(audioCtx.sampleRate * 0.08);
+    const crackBuf = audioCtx.createBuffer(1, crackLen, audioCtx.sampleRate);
+    const crackData = crackBuf.getChannelData(0);
+    for (let i = 0; i < crackLen; i++) {
+      const env = i < crackLen * 0.02 ? 1 : Math.exp(-(i / crackLen) * 12);
+      crackData[i] = (Math.random() * 2 - 1) * env;
+    }
+    const crackSrc = audioCtx.createBufferSource();
+    crackSrc.buffer = crackBuf;
+    const crackFilt = audioCtx.createBiquadFilter();
+    crackFilt.type = 'bandpass';
+    crackFilt.frequency.value = 3000;
+    crackFilt.Q.value = 1.5;
+    const crackGain = audioCtx.createGain();
+    crackGain.gain.value = 0.5;
+    crackSrc.connect(crackFilt);
+    crackFilt.connect(crackGain);
+    crackGain.connect(audioCtx.destination);
+    crackSrc.start(t);
+    crackSrc.stop(t + 0.08);
+
+    // Low wood thump
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(250, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.1);
+    gain.gain.setValueAtTime(0.4, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.12);
+
+    // Body impact (dull thud)
+    const thump = audioCtx.createOscillator();
+    const thumpGain = audioCtx.createGain();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(100, t + 0.02);
+    thump.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+    thumpGain.gain.setValueAtTime(0.3, t + 0.02);
+    thumpGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+    thump.connect(thumpGain);
+    thumpGain.connect(audioCtx.destination);
+    thump.start(t + 0.02);
+    thump.stop(t + 0.15);
+  } catch (e) {}
+}
+
+function playCarCrash() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    // Metal crunch - long noise burst shaped like a crash
+    const crashLen = Math.floor(audioCtx.sampleRate * 0.5);
+    const crashBuf = audioCtx.createBuffer(1, crashLen, audioCtx.sampleRate);
+    const crashData = crashBuf.getChannelData(0);
+    for (let i = 0; i < crashLen; i++) {
+      const time = i / audioCtx.sampleRate;
+      const env = time < 0.02 ? time / 0.02 : Math.exp(-(time - 0.02) * 5);
+      // Mix of noise with metallic resonance
+      const noise = (Math.random() * 2 - 1);
+      const metal = Math.sin(2 * Math.PI * 180 * time) * 0.3 + Math.sin(2 * Math.PI * 420 * time) * 0.15;
+      crashData[i] = (noise * 0.7 + metal) * env;
+    }
+    const crashSrc = audioCtx.createBufferSource();
+    crashSrc.buffer = crashBuf;
+    const crashFilt = audioCtx.createBiquadFilter();
+    crashFilt.type = 'lowpass';
+    crashFilt.frequency.value = 2500;
+    const crashGain = audioCtx.createGain();
+    crashGain.gain.value = 0.45;
+    crashSrc.connect(crashFilt);
+    crashFilt.connect(crashGain);
+    crashGain.connect(audioCtx.destination);
+    crashSrc.start(t);
+    crashSrc.stop(t + 0.5);
+
+    // Heavy impact thud
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(80, t);
+    osc.frequency.exponentialRampToValueAtTime(25, t + 0.3);
+    gain.gain.setValueAtTime(0.5, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.35);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.35);
+
+    // Glass breaking
+    const glassLen = Math.floor(audioCtx.sampleRate * 0.2);
+    const glassBuf = audioCtx.createBuffer(1, glassLen, audioCtx.sampleRate);
+    const glassData = glassBuf.getChannelData(0);
+    for (let i = 0; i < glassLen; i++) {
+      const time = i / audioCtx.sampleRate;
+      const env = time < 0.01 ? 1 : Math.exp(-time * 15);
+      glassData[i] = (Math.random() * 2 - 1) * env;
+    }
+    const glassSrc = audioCtx.createBufferSource();
+    glassSrc.buffer = glassBuf;
+    const glassFilt = audioCtx.createBiquadFilter();
+    glassFilt.type = 'highpass';
+    glassFilt.frequency.value = 5000;
+    const glassGain = audioCtx.createGain();
+    glassGain.gain.value = 0.25;
+    glassSrc.connect(glassFilt);
+    glassFilt.connect(glassGain);
+    glassGain.connect(audioCtx.destination);
+    glassSrc.start(t + 0.05);
+    glassSrc.stop(t + 0.25);
   } catch (e) {}
 }
 
@@ -964,6 +1102,7 @@ function spawnBulletAt(target) {
   const spread = isUzi ? 6 : 2;
 
   bullets.push({ x: bx, y: by + (Math.random() - 0.5) * spread, w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
+  player.muzzleFlash = 8;
   playGunshot();
 
   // Uzi fires 3 total shots (burst)
@@ -971,11 +1110,13 @@ function spawnBulletAt(target) {
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
       bullets.push({ x: player.x + player.w + 5, y: player.y + player.h / 2 + (Math.random() - 0.5) * 8, w: 10, h: 3 });
+      player.muzzleFlash = 6;
       playGunshot();
     }, 80);
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
       bullets.push({ x: player.x + player.w + 5, y: player.y + player.h / 2 + (Math.random() - 0.5) * 8, w: 10, h: 3 });
+      player.muzzleFlash = 6;
       playGunshot();
     }, 160);
   }
@@ -1696,6 +1837,13 @@ function drawPlayer() {
   if (p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0) return;
 
   const walkOffset = p.grounded ? [0, -2, 0, 2][p.frame] : 0;
+
+  // If in car, skip normal body draw - car has driver inside
+  if (p.hasShield) {
+    drawCarShield(p, walkOffset);
+    return;
+  }
+
   const cx = p.x + p.w / 2;
   const by = p.y + p.h + walkOffset;
 
@@ -1886,10 +2034,11 @@ function drawPlayer() {
 
   // Weapon visual in hand
   if (p.weaponTier === 1) {
-    // Bat in hand
+    // Bat in hand - with swing animation
     ctx.save();
+    const swingAngle = p.batSwing > 0 ? -1.2 + (p.batSwing / 15) * 1.6 : 0.4;
     ctx.translate(16, -42 - armSwing);
-    ctx.rotate(0.4);
+    ctx.rotate(swingAngle);
     ctx.fillStyle = '#333';
     ctx.fillRect(-2, -4, 4, 12);
     ctx.fillStyle = '#8B4513';
@@ -1900,157 +2049,235 @@ function drawPlayer() {
     ctx.beginPath();
     ctx.roundRect(-4, -26, 8, 6, 3);
     ctx.fill();
-    // Cooldown indicator
-    if (p.batCooldown > 0) {
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#ff4444';
+    // Swing trail effect
+    if (p.batSwing > 5) {
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, -14, 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(0, -14, 18, -0.5, 0.8);
+      ctx.stroke();
       ctx.globalAlpha = 1;
     }
     ctx.restore();
-  } else if (p.weaponTier === 2 || p.weaponTier === 3) {
-    // Pistol in hand
+  } else if (p.weaponTier >= 2) {
+    // Gun in hand (pistol or uzi)
+    const isUzi = p.weaponTier === 4;
     ctx.save();
-    ctx.translate(18, -40 - armSwing);
-    ctx.rotate(0.2);
-    ctx.fillStyle = '#555';
-    ctx.fillRect(-1, -12, 3, 10); // barrel
-    ctx.fillStyle = '#444';
-    ctx.fillRect(-2, -4, 5, 6); // body
-    ctx.fillStyle = '#3a2518';
-    ctx.fillRect(-1, 2, 4, 6); // grip
-    ctx.restore();
-  } else if (p.weaponTier === 4) {
-    // Uzi in hand
-    ctx.save();
-    ctx.translate(18, -42 - armSwing);
-    ctx.rotate(0.15);
-    ctx.fillStyle = '#555';
-    ctx.fillRect(-2, -16, 4, 14); // barrel
-    ctx.fillStyle = '#444';
-    ctx.fillRect(-3, -4, 7, 8); // body
-    ctx.fillStyle = '#333';
-    ctx.fillRect(0, 4, 3, 8); // magazine
-    ctx.fillStyle = '#3a2518';
-    ctx.fillRect(3, 2, 4, 6); // grip
+    ctx.translate(18, (isUzi ? -42 : -40) - armSwing);
+    ctx.rotate(isUzi ? 0.15 : 0.2);
+    if (isUzi) {
+      ctx.fillStyle = '#555';
+      ctx.fillRect(-2, -16, 4, 14);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-3, -4, 7, 8);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(0, 4, 3, 8);
+      ctx.fillStyle = '#3a2518';
+      ctx.fillRect(3, 2, 4, 6);
+    } else {
+      ctx.fillStyle = '#555';
+      ctx.fillRect(-1, -12, 3, 10);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-2, -4, 5, 6);
+      ctx.fillStyle = '#3a2518';
+      ctx.fillRect(-1, 2, 4, 6);
+    }
+    // Muzzle flash
+    if (p.muzzleFlash > 0) {
+      const flashSize = p.muzzleFlash * 1.2;
+      ctx.save();
+      ctx.translate(isUzi ? 0 : 0, isUzi ? -18 : -14);
+      ctx.fillStyle = '#ffff44';
+      ctx.shadowColor = '#ffaa00';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(0, -flashSize);
+      ctx.lineTo(flashSize * 0.4, -flashSize * 0.3);
+      ctx.lineTo(flashSize, 0);
+      ctx.lineTo(flashSize * 0.4, flashSize * 0.3);
+      ctx.lineTo(0, flashSize);
+      ctx.lineTo(-flashSize * 0.3, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(0, 0, flashSize * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     ctx.restore();
   }
 
   ctx.restore();
 
-  // Car shield visual - red sports car around player
-  if (p.hasShield) {
+  // Car crash flash effect (shows after car breaks)
+  if (p.carCrash > 15) {
     ctx.save();
-    ctx.globalAlpha = 0.75;
-    const carX = p.x + p.w / 2;
-    const carY = p.y + p.h + walkOffset;
-
-    // Shadow under car
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath();
-    ctx.ellipse(carX, carY + 8, 30, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Main body - sleek sports car shape
-    const bodyGrad = ctx.createLinearGradient(carX - 30, carY - 20, carX - 30, carY + 8);
-    bodyGrad.addColorStop(0, '#ff3333');
-    bodyGrad.addColorStop(0.4, '#cc0000');
-    bodyGrad.addColorStop(1, '#880000');
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.moveTo(carX - 30, carY + 4);
-    ctx.lineTo(carX - 28, carY - 6);
-    ctx.lineTo(carX - 18, carY - 10);
-    ctx.lineTo(carX + 20, carY - 10);
-    ctx.lineTo(carX + 32, carY - 4);
-    ctx.lineTo(carX + 34, carY + 4);
-    ctx.closePath();
-    ctx.fill();
-
-    // Roof / windshield area (lower, sportier)
-    ctx.fillStyle = '#aa0000';
-    ctx.beginPath();
-    ctx.moveTo(carX - 12, carY - 10);
-    ctx.lineTo(carX - 6, carY - 22);
-    ctx.lineTo(carX + 14, carY - 22);
-    ctx.lineTo(carX + 20, carY - 10);
-    ctx.closePath();
-    ctx.fill();
-
-    // Windshield
-    ctx.fillStyle = 'rgba(150,220,255,0.55)';
-    ctx.beginPath();
-    ctx.moveTo(carX + 8, carY - 10);
-    ctx.lineTo(carX + 12, carY - 20);
-    ctx.lineTo(carX + 14, carY - 20);
-    ctx.lineTo(carX + 18, carY - 10);
-    ctx.closePath();
-    ctx.fill();
-
-    // Rear window
-    ctx.fillStyle = 'rgba(150,220,255,0.4)';
-    ctx.beginPath();
-    ctx.moveTo(carX - 10, carY - 10);
-    ctx.lineTo(carX - 6, carY - 20);
-    ctx.lineTo(carX - 2, carY - 20);
-    ctx.lineTo(carX + 2, carY - 10);
-    ctx.closePath();
-    ctx.fill();
-
-    // Hood highlight (shiny)
-    ctx.fillStyle = 'rgba(255,150,150,0.3)';
-    ctx.beginPath();
-    ctx.ellipse(carX + 28, carY - 6, 8, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Headlights
-    ctx.fillStyle = '#ffff88';
-    ctx.shadowColor = '#ffff00';
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.ellipse(carX + 33, carY - 2, 2, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Tail lights
-    ctx.fillStyle = '#ff0000';
-    ctx.shadowColor = '#ff0000';
-    ctx.shadowBlur = 5;
-    ctx.beginPath();
-    ctx.ellipse(carX - 29, carY - 2, 2, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Wheels with rims
-    ctx.fillStyle = '#111';
-    ctx.beginPath();
-    ctx.arc(carX - 18, carY + 5, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(carX + 22, carY + 5, 6, 0, Math.PI * 2);
-    ctx.fill();
-    // Chrome rims
-    ctx.strokeStyle = '#aaa';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(carX - 18, carY + 5, 3.5, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(carX + 22, carY + 5, 3.5, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Subtle red glow around car
-    ctx.strokeStyle = 'rgba(255,50,50,0.5)';
-    ctx.lineWidth = 2;
-    ctx.shadowColor = '#ff2222';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.ellipse(carX + 2, carY - 5, 36, 22, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.globalAlpha = (p.carCrash - 15) / 10 * 0.2;
+    ctx.fillStyle = '#ff6600';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
   }
+}
+
+function drawCarShield(p, walkOffset) {
+  ctx.save();
+  const carX = p.x + p.w / 2;
+  const carY = p.y + p.h;
+
+  // Shadow under car
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(carX + 4, carY + 12, 44, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Main body - big sleek sports car
+  const bodyGrad = ctx.createLinearGradient(carX - 42, carY - 30, carX - 42, carY + 10);
+  bodyGrad.addColorStop(0, '#ff3333');
+  bodyGrad.addColorStop(0.5, '#cc0000');
+  bodyGrad.addColorStop(1, '#880000');
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.moveTo(carX - 42, carY + 6);
+  ctx.lineTo(carX - 38, carY - 8);
+  ctx.lineTo(carX - 24, carY - 14);
+  ctx.lineTo(carX + 28, carY - 14);
+  ctx.lineTo(carX + 44, carY - 6);
+  ctx.lineTo(carX + 48, carY + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Lower body stripe
+  ctx.fillStyle = '#990000';
+  ctx.beginPath();
+  ctx.moveTo(carX - 40, carY + 2);
+  ctx.lineTo(carX + 46, carY + 2);
+  ctx.lineTo(carX + 48, carY + 6);
+  ctx.lineTo(carX - 42, carY + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Roof (character visible through windows)
+  ctx.fillStyle = '#aa0000';
+  ctx.beginPath();
+  ctx.moveTo(carX - 14, carY - 14);
+  ctx.lineTo(carX - 8, carY - 32);
+  ctx.lineTo(carX + 18, carY - 32);
+  ctx.lineTo(carX + 26, carY - 14);
+  ctx.closePath();
+  ctx.fill();
+
+  // Windshield (big, see driver)
+  ctx.fillStyle = 'rgba(120,200,255,0.45)';
+  ctx.beginPath();
+  ctx.moveTo(carX + 10, carY - 14);
+  ctx.lineTo(carX + 15, carY - 30);
+  ctx.lineTo(carX + 18, carY - 30);
+  ctx.lineTo(carX + 24, carY - 14);
+  ctx.closePath();
+  ctx.fill();
+
+  // Driver visible through windshield (head + cap)
+  ctx.fillStyle = p.skinColor;
+  ctx.beginPath();
+  ctx.arc(carX + 8, carY - 24, 6, 0, Math.PI * 2);
+  ctx.fill();
+  // Cap
+  ctx.fillStyle = '#b71c1c';
+  ctx.beginPath();
+  ctx.arc(carX + 8, carY - 27, 7, Math.PI, 0);
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(carX + 6, carY - 25, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(carX + 10, carY - 25, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  // Hand on wheel
+  ctx.fillStyle = p.skinColor;
+  ctx.beginPath();
+  ctx.arc(carX + 14, carY - 18, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rear window
+  ctx.fillStyle = 'rgba(120,200,255,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(carX - 12, carY - 14);
+  ctx.lineTo(carX - 8, carY - 28);
+  ctx.lineTo(carX - 4, carY - 28);
+  ctx.lineTo(carX + 2, carY - 14);
+  ctx.closePath();
+  ctx.fill();
+
+  // Hood highlight
+  ctx.fillStyle = 'rgba(255,180,180,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(carX + 38, carY - 8, 10, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Headlights (bright)
+  ctx.fillStyle = '#ffffaa';
+  ctx.shadowColor = '#ffff44';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.ellipse(carX + 47, carY - 2, 3, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(carX + 46, carY + 3, 2, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Tail lights
+  ctx.fillStyle = '#ff0000';
+  ctx.shadowColor = '#ff0000';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.ellipse(carX - 41, carY - 2, 2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(carX - 40, carY + 3, 2, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Wheels with rims (bigger)
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(carX - 24, carY + 8, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(carX + 30, carY + 8, 8, 0, Math.PI * 2);
+  ctx.fill();
+  // Chrome rims
+  ctx.strokeStyle = '#bbb';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(carX - 24, carY + 8, 4.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(carX + 30, carY + 8, 4.5, 0, Math.PI * 2);
+  ctx.stroke();
+  // Rim spokes (spinning)
+  ctx.lineWidth = 1;
+  for (let s = 0; s < 5; s++) {
+    const a = s * Math.PI * 2 / 5 + frameCount * 0.1;
+    ctx.beginPath();
+    ctx.moveTo(carX - 24, carY + 8);
+    ctx.lineTo(carX - 24 + Math.cos(a) * 4.5, carY + 8 + Math.sin(a) * 4.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(carX + 30, carY + 8);
+    ctx.lineTo(carX + 30 + Math.cos(a) * 4.5, carY + 8 + Math.sin(a) * 4.5);
+    ctx.stroke();
+  }
+
+  // Side mirror
+  ctx.fillStyle = '#cc0000';
+  ctx.fillRect(carX + 22, carY - 16, 4, 3);
+
+  ctx.restore();
 }
 
 function drawBullets() {
