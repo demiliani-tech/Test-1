@@ -1187,21 +1187,43 @@ function drawSwat(swat) {
 function drawHelicopter(heli) {
   const x = heli.x, y = heli.y, w = heli.w, h = heli.h;
   const cx = x + w / 2, cy = y + h / 2;
-  // Slight hover bob
   const bob = Math.sin(frameCount * 0.15) * 2;
+  const flash = Math.sin(frameCount * 0.4) > 0;
 
   ctx.save();
   ctx.translate(cx, cy + bob);
 
+  // Warning glow around helicopter so it's visible
+  ctx.save();
+  ctx.shadowColor = flash ? '#ff0000' : '#0066ff';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = 'rgba(0,0,0,0)';
+  ctx.beginPath();
+  ctx.ellipse(5, 0, 26, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Searchlight beam (brighter, drawn behind)
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#ffffaa';
+  ctx.beginPath();
+  ctx.moveTo(10, 10);
+  ctx.lineTo(-15, 100);
+  ctx.lineTo(35, 100);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
   // Tail boom
-  ctx.fillStyle = '#1a1a2e';
+  ctx.fillStyle = '#3a3a5a';
   ctx.fillRect(-35, -3, 25, 6);
   // Tail rotor
-  ctx.fillStyle = '#444';
+  ctx.fillStyle = '#888';
   const tailSpin = Math.sin(heli.bladeAngle * 2) * 8;
   ctx.fillRect(-36, -3 + tailSpin - 4, 3, 8);
   // Tail fin
-  ctx.fillStyle = '#252540';
+  ctx.fillStyle = '#4a4a6a';
   ctx.beginPath();
   ctx.moveTo(-35, -6);
   ctx.lineTo(-38, -14);
@@ -1209,25 +1231,36 @@ function drawHelicopter(heli) {
   ctx.closePath();
   ctx.fill();
 
-  // Main body
-  ctx.fillStyle = '#1a1a2e';
+  // Main body (lighter so it's visible)
+  ctx.fillStyle = '#3a3a5a';
   ctx.beginPath();
   ctx.ellipse(5, 0, 22, 12, 0, 0, Math.PI * 2);
   ctx.fill();
-  // Cockpit window
-  ctx.fillStyle = 'rgba(100,180,255,0.5)';
+  // Body outline
+  ctx.strokeStyle = '#6a6a8a';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(5, 0, 22, 12, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  // POLICE text
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 6px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('POLICE', 2, 3);
+
+  // Cockpit window (brighter)
+  ctx.fillStyle = 'rgba(120,200,255,0.7)';
   ctx.beginPath();
   ctx.ellipse(14, -2, 10, 8, 0.15, -0.8, 0.8);
   ctx.fill();
-  // Window frame
-  ctx.strokeStyle = '#333';
+  ctx.strokeStyle = '#8ab8d0';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.ellipse(14, -2, 10, 8, 0.15, -0.8, 0.8);
   ctx.stroke();
 
-  // Skids (landing gear)
-  ctx.strokeStyle = '#444';
+  // Skids
+  ctx.strokeStyle = '#888';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(-8, 12);
@@ -1243,41 +1276,31 @@ function drawHelicopter(heli) {
   ctx.stroke();
 
   // Rotor mast
-  ctx.fillStyle = '#444';
+  ctx.fillStyle = '#666';
   ctx.fillRect(2, -14, 4, 4);
 
-  // Main rotor blades (spinning)
+  // Main rotor blades (spinning, brighter)
   ctx.save();
   ctx.translate(4, -14);
   ctx.rotate(heli.bladeAngle);
-  ctx.fillStyle = 'rgba(150,150,150,0.7)';
-  ctx.fillRect(-30, -2, 60, 4);
+  ctx.fillStyle = 'rgba(200,200,200,0.8)';
+  ctx.fillRect(-32, -2, 64, 4);
   ctx.restore();
   ctx.save();
   ctx.translate(4, -14);
   ctx.rotate(heli.bladeAngle + Math.PI / 2);
-  ctx.fillStyle = 'rgba(150,150,150,0.5)';
-  ctx.fillRect(-30, -2, 60, 4);
+  ctx.fillStyle = 'rgba(200,200,200,0.6)';
+  ctx.fillRect(-32, -2, 64, 4);
   ctx.restore();
 
-  // Red/blue police lights
-  const flash = Math.sin(frameCount * 0.4) > 0;
-  ctx.globalAlpha = 0.6;
-  ctx.fillStyle = flash ? '#ff0000' : '#0066ff';
-  ctx.beginPath();
-  ctx.arc(5, -12, 3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-
-  // Searchlight beam
+  // Red/blue police lights (bigger, brighter)
   ctx.save();
-  ctx.globalAlpha = 0.08;
-  ctx.fillStyle = '#ffffaa';
+  ctx.shadowColor = flash ? '#ff0000' : '#0066ff';
+  ctx.shadowBlur = 15;
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = flash ? '#ff3333' : '#3388ff';
   ctx.beginPath();
-  ctx.moveTo(10, 10);
-  ctx.lineTo(-10, 80);
-  ctx.lineTo(30, 80);
-  ctx.closePath();
+  ctx.arc(5, -12, 4, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
