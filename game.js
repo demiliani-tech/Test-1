@@ -2436,7 +2436,7 @@ function drawCarShield(p, walkOffset) {
   const carY = p.y + p.h;
 
   // Scale car up so it's bigger than cops
-  const carScale = 1.5;
+  const carScale = 1.9;
   const groundY = carY + 16; // bottom of wheels
   ctx.translate(carX, groundY);
   ctx.scale(carScale, carScale);
