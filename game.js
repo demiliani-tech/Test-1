@@ -681,19 +681,28 @@ function update() {
   if (player.invincible > 0) player.invincible--;
   if (player.batCooldown > 0) player.batCooldown--;
 
-  // Gun auto-fire
+  // Gun auto-fire: shoots at first visible enemy when cooldown is up
   if (player.weaponTier >= 2) {
     player.gunTimer--;
     if (player.gunTimer <= 0) {
-      const fireRate = player.weaponTier === 2 ? 900 : player.weaponTier === 3 ? 600 : 300; // 15s, 10s, 5s at 60fps
-      player.gunTimer = fireRate;
-      spawnBullet();
+      // Find first enemy on screen ahead of player
+      let target = null;
+      for (const o of obstacles) {
+        if (o.x > player.x && o.x < canvas.width + 10) {
+          if (!target || o.x < target.x) target = o;
+        }
+      }
+      if (target) {
+        const fireRate = player.weaponTier === 2 ? 900 : player.weaponTier === 3 ? 600 : 300; // 15s, 10s, 5s
+        player.gunTimer = fireRate;
+        spawnBulletAt(target);
+      }
     }
   }
 
   // Move bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
-    bullets[i].x += 10;
+    bullets[i].x += 12;
     if (bullets[i].x > canvas.width + 20) { bullets.splice(i, 1); continue; }
     // Bullet-obstacle collision
     for (let oi = obstacles.length - 1; oi >= 0; oi--) {
@@ -702,8 +711,20 @@ function update() {
       if (!b) break;
       if (b.x + 8 > o.x && b.x < o.x + o.w && b.y + 4 > o.y && b.y < o.y + o.h) {
         spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
-        obstacles.splice(oi, 1);
         bullets.splice(i, 1);
+        if (o.type === 'swat') {
+          // SWAT: 1 shot kills 1 officer
+          o.officerCount--;
+          // Shrink hitbox as officers die
+          const perOfficer = 30;
+          o.w = o.officerCount * perOfficer;
+          o.x += perOfficer; // front officer removed
+          if (o.officerCount <= 0) {
+            obstacles.splice(oi, 1);
+          }
+        } else {
+          obstacles.splice(oi, 1);
+        }
         score += 200;
         playHitSound();
         updateScoreUI();
@@ -814,7 +835,7 @@ function update() {
       if (rectOverlap(pb, ob)) {
         // Bat hits cops and K-9 on contact FIRST (30s cooldown)
         if (player.weaponTier >= 1 && player.batCooldown <= 0 && (o.type === 'cop' || o.type === 'k9')) {
-          player.batCooldown = 1800; // 30 seconds at 60fps
+          player.batCooldown = 1200; // 20 seconds at 60fps
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
           obstacles.splice(oi, 1);
           score += 200;
@@ -934,13 +955,18 @@ function playDenySound() {
   } catch (e) {}
 }
 
-function spawnBullet() {
+function spawnBulletAt(target) {
   const bx = player.x + player.w + 5;
   const by = player.y + player.h / 2;
   const isUzi = player.weaponTier === 4;
-  bullets.push({ x: bx, y: by + (isUzi ? (Math.random() - 0.5) * 8 : 0), w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
+  // Aim bullet toward the target's center Y
+  const targetY = target.y + target.h / 2;
+  const spread = isUzi ? 6 : 2;
+
+  bullets.push({ x: bx, y: by + (Math.random() - 0.5) * spread, w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
   playGunshot();
-  // Uzi fires a quick burst (2 extra shots)
+
+  // Uzi fires 3 total shots (burst)
   if (isUzi) {
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
@@ -2404,7 +2430,7 @@ function drawWeaponHUD() {
   // Bat cooldown ring
   if (player.weaponTier >= 1) {
     const ready = player.batCooldown <= 0;
-    const pct = ready ? 1 : 1 - (player.batCooldown / 1800);
+    const pct = ready ? 1 : 1 - (player.batCooldown / 1200);
 
     // Background circle
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -2461,8 +2487,8 @@ function drawWeaponHUD() {
   if (player.weaponTier >= 2) {
     const gunY = hudY + 42;
     const fireRate = player.weaponTier === 2 ? 900 : player.weaponTier === 3 ? 600 : 300;
-    const gunPct = 1 - (player.gunTimer / fireRate);
-    const gunReady = player.gunTimer <= 60;
+    const gunPct = player.gunTimer <= 0 ? 1 : 1 - (player.gunTimer / fireRate);
+    const gunReady = player.gunTimer <= 0;
 
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
