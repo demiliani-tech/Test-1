@@ -238,12 +238,18 @@ function loopHiHat(dest) {
 }
 
 // --- Game state ---
-const STATE = { START: 0, PLAYING: 1, DEAD: 2 };
+const STATE = { START: 0, PLAYING: 1, DEAD: 2, SHOP: 3 };
 let state = STATE.START;
 let score = 0, cashCollected = 0, chainsCollected = 0, distance = 0;
 let highScore = parseInt(localStorage.getItem('hoodRunnerHS') || '0');
 let speed = 4, frameCount = 0, animFrame;
 let particles = [], collectibles = [], obstacles = [], platforms = [], clouds = [];
+
+// --- Shop system ---
+const SHOP_INTERVAL = 200; // meters between shop checkpoints
+let nextShopDistance = SHOP_INTERVAL;
+let chainsBought = 0;
+let shopSelection = -1; // currently highlighted item
 
 // --- Player ---
 const player = {
@@ -262,6 +268,9 @@ const player = {
   sneakerColor: '#fff',
   bling: 0,
   chainsWorn: 0,
+  hasWeapon: false,
+  hasShield: false,
+  shieldTimer: 0,
 };
 
 const GRAVITY = 0.55;
@@ -275,6 +284,7 @@ let jumpHeld = false;
 function doJump() {
   if (state === STATE.START) { startGame(); return; }
   if (state === STATE.DEAD) return;
+  if (state === STATE.SHOP) return; // handled by shop click
   if (player.jumpsLeft > 0) {
     player.vy = player.jumpsLeft === 2 ? JUMP_FORCE : JUMP_FORCE * 0.82;
     player.jumpsLeft--;
@@ -293,8 +303,15 @@ document.addEventListener('keyup', e => {
   if (e.code === 'Space' || e.code === 'ArrowUp') jumpHeld = false;
 });
 
-canvas.addEventListener('touchstart', e => { e.preventDefault(); doJump(); }, { passive: false });
-canvas.addEventListener('mousedown', e => { doJump(); });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (state === STATE.SHOP) { handleShopClick(e.touches[0].clientX, e.touches[0].clientY); return; }
+  doJump();
+}, { passive: false });
+canvas.addEventListener('mousedown', e => {
+  if (state === STATE.SHOP) { handleShopClick(e.clientX, e.clientY); return; }
+  doJump();
+});
 
 document.getElementById('jump-btn').addEventListener('touchstart', e => {
   e.preventDefault();
@@ -334,6 +351,12 @@ function startGame() {
   player.frame = 0;
   player.bling = 0;
   player.chainsWorn = 0;
+  player.hasWeapon = false;
+  player.hasShield = false;
+  player.shieldTimer = 0;
+  nextShopDistance = SHOP_INTERVAL;
+  chainsBought = 0;
+  shopSelection = -1;
   platforms = [];
   initClouds();
   spawnInitialPlatforms();
@@ -630,9 +653,19 @@ function rectOverlap(a, b, shrink = 0) {
 
 // --- Update ---
 function update() {
+  if (state === STATE.SHOP) return; // freeze game during shop
   if (state !== STATE.PLAYING) return;
   frameCount++;
   distance = Math.floor(frameCount / 10);
+
+  // Check for shop checkpoint
+  if (distance >= nextShopDistance) {
+    nextShopDistance += SHOP_INTERVAL;
+    state = STATE.SHOP;
+    shopSelection = -1;
+    playShopSound();
+    return;
+  }
 
   // speed ramp
   speed = 4 + frameCount * 0.003;
@@ -642,6 +675,10 @@ function update() {
   player.vy += GRAVITY;
   player.y += player.vy;
   if (player.invincible > 0) player.invincible--;
+  if (player.shieldTimer > 0) {
+    player.shieldTimer--;
+    if (player.shieldTimer <= 0) player.hasShield = false;
+  }
 
   // platform collision
   player.grounded = false;
@@ -722,15 +759,16 @@ function update() {
     if (rectOverlap(hitbox, pb)) {
       spawnCollectParticles(c.x + c.w / 2, c.y + c.h / 2, c.type);
       if (c.type === 'cash') { cashCollected += 100; score += 100; player.bling = Math.min(player.bling + 1, 5); }
-      else { chainsCollected++; score += 500; player.bling = Math.min(player.bling + 2, 5); player.chainsWorn = Math.min(player.chainsWorn + 1, 5); }
+      else { chainsCollected++; score += 500; player.bling = Math.min(player.bling + 2, 5); player.chainsWorn++; }
       collectibles.splice(i, 1);
       updateScoreUI();
     }
   }
 
-  // obstacle collision (cops + swat + helicopter)
+  // obstacle collision (cops + swat + helicopter + k9)
   if (player.invincible === 0) {
-    for (const o of obstacles) {
+    for (let oi = obstacles.length - 1; oi >= 0; oi--) {
+      const o = obstacles[oi];
       const pb = { x: player.x + 8, y: player.y + 8, w: player.w - 16, h: player.h - 12 };
       let ob;
       if (o.type === 'helicopter') {
@@ -742,6 +780,23 @@ function update() {
         ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
       }
       if (rectOverlap(pb, ob)) {
+        // Shield protects player
+        if (player.hasShield) {
+          spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
+          obstacles.splice(oi, 1);
+          playHitSound();
+          continue;
+        }
+        // Weapon destroys the enemy
+        if (player.hasWeapon) {
+          player.hasWeapon = false;
+          spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
+          obstacles.splice(oi, 1);
+          score += 200;
+          playHitSound();
+          updateScoreUI();
+          continue;
+        }
         killPlayer();
         return;
       }
@@ -763,30 +818,366 @@ function update() {
   spawnThings();
 }
 
+// --- Shop sound ---
+function playShopSound() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    // Cash register cha-ching
+    const notes = [523, 659, 784, 1047];
+    for (let i = 0; i < notes.length; i++) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = notes[i];
+      gain.gain.setValueAtTime(0.2, t + i * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + i * 0.08 + 0.15);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t + i * 0.08);
+      osc.stop(t + i * 0.08 + 0.2);
+    }
+  } catch (e) {}
+}
+
+function playHitSound() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(200, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.15);
+    gain.gain.setValueAtTime(0.3, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.15);
+  } catch (e) {}
+}
+
+function playBuySound() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, t);
+    osc.frequency.linearRampToValueAtTime(800, t + 0.1);
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.2);
+  } catch (e) {}
+}
+
+function playDenySound() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.setValueAtTime(100, t + 0.1);
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  } catch (e) {}
+}
+
+// --- Shop UI ---
+const SHOP_ITEMS = [
+  { name: 'WEAPON', desc: 'Baseball Bat', price: 500, icon: 'bat' },
+  { name: 'CAR', desc: 'Shield Ride', price: 1000, icon: 'car' },
+  { name: 'CHAIN', desc: 'Gold Chain', price: 300, icon: 'chain' },
+];
+
+function getShopLayout() {
+  const w = canvas.width, h = canvas.height;
+  const cardW = Math.min(120, w * 0.28);
+  const cardH = cardW * 1.4;
+  const gap = Math.min(16, w * 0.03);
+  const totalW = cardW * 3 + gap * 2;
+  const startX = (w - totalW) / 2;
+  const startY = h * 0.28;
+  const btnW = Math.min(220, w * 0.55);
+  const btnH = 44;
+  const btnX = (w - btnW) / 2;
+  const btnY = startY + cardH + 50;
+
+  const cards = [];
+  for (let i = 0; i < 3; i++) {
+    cards.push({
+      x: startX + i * (cardW + gap),
+      y: startY,
+      w: cardW,
+      h: cardH,
+    });
+  }
+  return { cards, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
+}
+
+function drawShop() {
+  if (state !== STATE.SHOP) return;
+  const w = canvas.width, h = canvas.height;
+  const layout = getShopLayout();
+
+  // Dark overlay
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Title
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(36, w * 0.08) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#ffd700';
+  ctx.shadowBlur = 15;
+  ctx.fillText('SHOP', w / 2, h * 0.12);
+  ctx.shadowBlur = 0;
+
+  // Checkpoint distance
+  ctx.fillStyle = '#aaa';
+  ctx.font = Math.min(14, w * 0.035) + 'px Arial';
+  ctx.fillText('Checkpoint: ' + distance + 'm', w / 2, h * 0.17);
+
+  // Cash balance
+  ctx.fillStyle = '#00e676';
+  ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial';
+  ctx.fillText('💵 $' + cashCollected, w / 2, h * 0.23);
+
+  // Draw item cards
+  for (let i = 0; i < 3; i++) {
+    const item = SHOP_ITEMS[i];
+    const card = layout.cards[i];
+    const canAfford = cashCollected >= item.price;
+    const alreadyHas = (i === 0 && player.hasWeapon) || (i === 1 && player.hasShield);
+
+    // Card background
+    ctx.fillStyle = alreadyHas ? 'rgba(0,200,100,0.2)' : canAfford ? 'rgba(255,215,0,0.12)' : 'rgba(100,100,100,0.12)';
+    ctx.strokeStyle = alreadyHas ? '#00e676' : canAfford ? 'rgba(255,215,0,0.6)' : 'rgba(100,100,100,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(card.x, card.y, card.w, card.h, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // Icon
+    const iconCx = card.x + card.w / 2;
+    const iconCy = card.y + card.h * 0.32;
+    const iconSize = card.w * 0.3;
+    ctx.save();
+    if (i === 0) drawBatIcon(iconCx, iconCy, iconSize, canAfford);
+    else if (i === 1) drawCarIcon(iconCx, iconCy, iconSize, canAfford);
+    else drawChainIcon(iconCx, iconCy, iconSize, canAfford);
+    ctx.restore();
+
+    // Name
+    ctx.fillStyle = canAfford ? '#fff' : '#666';
+    ctx.font = 'bold ' + Math.min(13, card.w * 0.11) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(item.name, iconCx, card.y + card.h * 0.6);
+
+    // Description
+    ctx.fillStyle = canAfford ? '#aaa' : '#555';
+    ctx.font = Math.min(10, card.w * 0.085) + 'px Arial';
+    ctx.fillText(item.desc, iconCx, card.y + card.h * 0.72);
+
+    // Price
+    if (alreadyHas) {
+      ctx.fillStyle = '#00e676';
+      ctx.font = 'bold ' + Math.min(14, card.w * 0.12) + 'px Arial';
+      ctx.fillText('OWNED', iconCx, card.y + card.h * 0.88);
+    } else {
+      ctx.fillStyle = canAfford ? '#ffd700' : '#666';
+      ctx.font = 'bold ' + Math.min(14, card.w * 0.12) + 'px Arial';
+      ctx.fillText('$' + item.price, iconCx, card.y + card.h * 0.88);
+    }
+  }
+
+  // Continue button
+  const btn = layout.btn;
+  const btnGrad = ctx.createLinearGradient(btn.x, btn.y, btn.x + btn.w, btn.y);
+  btnGrad.addColorStop(0, '#ffd700');
+  btnGrad.addColorStop(1, '#ff8c00');
+  ctx.fillStyle = btnGrad;
+  ctx.beginPath();
+  ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 22);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('KEEP RUNNING', btn.x + btn.w / 2, btn.y + btn.h / 2 + 6);
+
+  ctx.restore();
+}
+
+function drawBatIcon(cx, cy, size, active) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.5);
+  ctx.fillStyle = active ? '#8B4513' : '#444';
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.15, -size * 1.2, size * 0.3, size * 2.2, 3);
+  ctx.fill();
+  // Handle wrap
+  ctx.fillStyle = active ? '#333' : '#333';
+  ctx.fillRect(-size * 0.18, size * 0.5, size * 0.36, size * 0.5);
+  // Bat head (wider top)
+  ctx.fillStyle = active ? '#A0522D' : '#555';
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.25, -size * 1.3, size * 0.5, size * 0.6, 5);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCarIcon(cx, cy, size, active) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  // Car body
+  ctx.fillStyle = active ? '#4488ff' : '#555';
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.8, -size * 0.2, size * 1.6, size * 0.6, 5);
+  ctx.fill();
+  // Roof
+  ctx.fillStyle = active ? '#3366cc' : '#444';
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.5, -size * 0.6, size * 1.0, size * 0.45, 4);
+  ctx.fill();
+  // Windshield
+  ctx.fillStyle = active ? 'rgba(150,220,255,0.6)' : 'rgba(100,100,100,0.4)';
+  ctx.fillRect(size * 0.1, -size * 0.5, size * 0.3, size * 0.3);
+  // Wheels
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(-size * 0.45, size * 0.4, size * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(size * 0.45, size * 0.4, size * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawChainIcon(cx, cy, size, active) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = active ? '#ffd700' : '#666';
+  ctx.lineWidth = 3;
+  ctx.shadowColor = active ? '#ffd700' : 'transparent';
+  ctx.shadowBlur = active ? 8 : 0;
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.6, 0, Math.PI * 2);
+  ctx.stroke();
+  // Inner ring
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.35, 0, Math.PI * 2);
+  ctx.stroke();
+  // Diamond pendant
+  ctx.fillStyle = active ? '#ffd700' : '#666';
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.5);
+  ctx.lineTo(size * 0.2, size * 0.8);
+  ctx.lineTo(0, size * 1.1);
+  ctx.lineTo(-size * 0.2, size * 0.8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// --- Shop interaction ---
+function handleShopClick(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const cx = (clientX - rect.left) * scaleX;
+  const cy = (clientY - rect.top) * scaleY;
+
+  const layout = getShopLayout();
+
+  // Check continue button
+  const btn = layout.btn;
+  if (cx >= btn.x && cx <= btn.x + btn.w && cy >= btn.y && cy <= btn.y + btn.h) {
+    state = STATE.PLAYING;
+    return;
+  }
+
+  // Check item cards
+  for (let i = 0; i < 3; i++) {
+    const card = layout.cards[i];
+    if (cx >= card.x && cx <= card.x + card.w && cy >= card.y && cy <= card.y + card.h) {
+      buyItem(i);
+      return;
+    }
+  }
+}
+
+function buyItem(index) {
+  const item = SHOP_ITEMS[index];
+  // Check if already owned (weapon/shield)
+  if (index === 0 && player.hasWeapon) { playDenySound(); return; }
+  if (index === 1 && player.hasShield) { playDenySound(); return; }
+
+  if (cashCollected < item.price) {
+    playDenySound();
+    return;
+  }
+
+  cashCollected -= item.price;
+  playBuySound();
+
+  if (index === 0) {
+    // Weapon - baseball bat
+    player.hasWeapon = true;
+  } else if (index === 1) {
+    // Car - shield for 8 seconds
+    player.hasShield = true;
+    player.shieldTimer = 480; // 8 seconds at 60fps
+  } else {
+    // Chain
+    player.chainsWorn++;
+    chainsBought++;
+  }
+  updateScoreUI();
+}
+
 function killPlayer() {
   spawnHitParticles(player.x + player.w / 2, player.y + player.h / 2);
   state = STATE.DEAD;
   stopMusic();
-  const isNewHigh = score > highScore;
-  if (isNewHigh) { highScore = score; localStorage.setItem('hoodRunnerHS', highScore); }
+  const totalChains = chainsCollected + chainsBought;
+  const isNewHigh = totalChains > highScore;
+  if (isNewHigh) { highScore = totalChains; localStorage.setItem('hoodRunnerHS', highScore); }
   setTimeout(() => showGameOver(isNewHigh), 600);
 }
 
 function showGameOver(newHigh) {
+  const totalChains = chainsCollected + chainsBought;
   document.getElementById('final-cash').textContent = '$' + cashCollected;
-  document.getElementById('final-chains').textContent = chainsCollected;
+  document.getElementById('final-chains').textContent = totalChains;
   document.getElementById('final-distance').textContent = distance + 'm';
-  document.getElementById('final-score').textContent = score;
-  document.getElementById('high-score-msg').textContent = newHigh ? '🏆 NEW HIGH SCORE!' : 'Best: ' + highScore + ' pts';
-  document.getElementById('high-score-display').textContent = 'Best: $' + highScore;
+  document.getElementById('final-score').textContent = totalChains + ' chains';
+  document.getElementById('high-score-msg').textContent = newHigh ? '🏆 NEW CHAIN RECORD!' : 'Best: ' + highScore + ' chains';
+  document.getElementById('high-score-display').textContent = 'Best: ' + highScore + ' chains';
   showScreen('game-over-screen');
 }
 
 function updateScoreUI() {
+  const totalChains = chainsCollected + chainsBought;
   document.getElementById('cash-score').textContent = '💵 $' + cashCollected;
-  document.getElementById('chain-score').textContent = '⛓️ x' + chainsCollected;
+  document.getElementById('chain-score').textContent = '⛓️ x' + totalChains;
   document.getElementById('distance-score').textContent = '🏃 ' + distance + 'm';
-  document.getElementById('high-score-display').textContent = 'Best: $' + highScore;
+  document.getElementById('high-score-display').textContent = 'Best: ' + highScore + ' chains';
 }
 
 // --- Drawing ---
@@ -1099,18 +1490,17 @@ function drawPlayer() {
   ctx.fillStyle = '#cc0000';
   ctx.fillRect(-13, -56, 26, 4);
 
-  // chains on neck (only shown when collected - up to 5)
+  // chains on neck (unlimited stacking!)
   if (p.chainsWorn > 0) {
-    const chainColors = ['#ffd700', '#ffec80', '#daa520', '#fff176', '#e6be00'];
-    for (let i = p.chainsWorn - 1; i >= 0; i--) {
-      const radius = 6 + i * 2;
-      const cy = -52 + i * 1;
-      // Gold glow
+    const chainColors = ['#ffd700', '#ffec80', '#daa520', '#fff176', '#e6be00', '#ffb300', '#ffc107', '#ffab00'];
+    const numChains = p.chainsWorn;
+    for (let i = numChains - 1; i >= 0; i--) {
+      const radius = 6 + i * 1.5;
+      const cy = -52 + i * 0.8;
       ctx.save();
       ctx.shadowColor = '#ffd700';
-      ctx.shadowBlur = 4 + p.chainsWorn;
-      // Thick chain line
-      ctx.strokeStyle = chainColors[i];
+      ctx.shadowBlur = Math.min(4 + numChains, 20);
+      ctx.strokeStyle = chainColors[i % chainColors.length];
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.arc(0, cy, radius, 0.15, Math.PI - 0.15);
@@ -1123,17 +1513,16 @@ function drawPlayer() {
       ctx.stroke();
       ctx.restore();
     }
-    // Pendant on longest chain (last collected = outermost)
-    const lastIdx = p.chainsWorn - 1;
-    const pendantR = 6 + lastIdx * 2;
-    const pendantCy = -52 + lastIdx * 1;
+    // Pendant on outermost chain
+    const lastIdx = numChains - 1;
+    const pendantR = 6 + lastIdx * 1.5;
+    const pendantCy = -52 + lastIdx * 0.8;
     const px = 0;
     const py = pendantCy + pendantR;
     ctx.save();
     ctx.shadowColor = '#ffd700';
     ctx.shadowBlur = 8;
     ctx.fillStyle = '#ffd700';
-    // Diamond shape pendant
     ctx.beginPath();
     ctx.moveTo(px, py - 2);
     ctx.lineTo(px + 4, py + 3);
@@ -1141,12 +1530,25 @@ function drawPlayer() {
     ctx.lineTo(px - 4, py + 3);
     ctx.closePath();
     ctx.fill();
-    // Sparkle dot
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(px - 1, py + 1, 1, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+
+    // Chain count badge if more than 5
+    if (numChains > 5) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.beginPath();
+      ctx.arc(14, -52, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 8px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('x' + numChains, 14, -49);
+      ctx.restore();
+    }
   }
 
   // arms
@@ -1191,7 +1593,67 @@ function drawPlayer() {
   ctx.arc(0, -66, 5, 0.2, Math.PI - 0.2);
   ctx.stroke();
 
+  // Weapon visual - baseball bat in hand
+  if (p.hasWeapon) {
+    ctx.save();
+    ctx.translate(16, -42 - armSwing);
+    ctx.rotate(0.4);
+    // Bat handle
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-2, -4, 4, 12);
+    // Bat body
+    ctx.fillStyle = '#8B4513';
+    ctx.beginPath();
+    ctx.roundRect(-3, -22, 6, 20, 2);
+    ctx.fill();
+    // Bat top
+    ctx.fillStyle = '#A0522D';
+    ctx.beginPath();
+    ctx.roundRect(-4, -26, 8, 6, 3);
+    ctx.fill();
+    ctx.restore();
+  }
+
   ctx.restore();
+
+  // Shield/car visual - drawn outside the player transform
+  if (p.hasShield) {
+    ctx.save();
+    const shieldAlpha = p.shieldTimer < 120 ? (Math.sin(frameCount * 0.3) * 0.3 + 0.5) : 0.7;
+    ctx.globalAlpha = shieldAlpha;
+    const carX = p.x + p.w / 2;
+    const carY = p.y + p.h + walkOffset;
+    // Car body around player
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.roundRect(carX - 28, carY - 14, 56, 20, 6);
+    ctx.fill();
+    // Car roof
+    ctx.fillStyle = '#3366cc';
+    ctx.beginPath();
+    ctx.roundRect(carX - 18, carY - 28, 36, 16, 4);
+    ctx.fill();
+    // Windshield
+    ctx.fillStyle = 'rgba(150,220,255,0.5)';
+    ctx.fillRect(carX + 4, carY - 26, 12, 12);
+    // Wheels
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(carX - 16, carY + 6, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(carX + 16, carY + 6, 6, 0, Math.PI * 2);
+    ctx.fill();
+    // Energy glow
+    ctx.strokeStyle = '#66aaff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#4488ff';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(carX, carY - 5, 32, 24, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function drawParticles() {
@@ -1580,6 +2042,7 @@ function gameLoop() {
   drawParticles();
   drawSpeedLines();
   drawDeathScreen();
+  drawShop();
   animFrame = requestAnimationFrame(gameLoop);
 }
 
@@ -1592,7 +2055,7 @@ function titleLoop() {
 }
 
 // Init high score display and title loop
-document.getElementById('high-score-display').textContent = 'Best: $' + highScore;
+document.getElementById('high-score-display').textContent = 'Best: ' + highScore + ' chains';
 initClouds();
 spawnInitialPlatforms();
 titleLoop();
