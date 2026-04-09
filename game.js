@@ -250,6 +250,7 @@ const SHOP_INTERVAL = 200; // meters between shop checkpoints
 let nextShopDistance = SHOP_INTERVAL;
 let chainsBought = 0;
 let shopSelection = -1; // currently highlighted item
+let bullets = []; // projectiles from guns
 
 // --- Player ---
 const player = {
@@ -268,9 +269,10 @@ const player = {
   sneakerColor: '#fff',
   bling: 0,
   chainsWorn: 0,
-  hasWeapon: false,
-  hasShield: false,
-  shieldTimer: 0,
+  weaponTier: 0, // 0=none, 1=bat, 2=pistol, 3=pistol+, 4=uzi
+  batCooldown: 0, // frames until bat can hit again
+  gunTimer: 0, // frames until next shot
+  hasShield: false, // car shield (one hit protection)
 };
 
 const GRAVITY = 0.55;
@@ -351,12 +353,14 @@ function startGame() {
   player.frame = 0;
   player.bling = 0;
   player.chainsWorn = 0;
-  player.hasWeapon = false;
+  player.weaponTier = 0;
+  player.batCooldown = 0;
+  player.gunTimer = 0;
   player.hasShield = false;
-  player.shieldTimer = 0;
   nextShopDistance = SHOP_INTERVAL;
   chainsBought = 0;
   shopSelection = -1;
+  bullets = [];
   platforms = [];
   initClouds();
   spawnInitialPlatforms();
@@ -675,9 +679,37 @@ function update() {
   player.vy += GRAVITY;
   player.y += player.vy;
   if (player.invincible > 0) player.invincible--;
-  if (player.shieldTimer > 0) {
-    player.shieldTimer--;
-    if (player.shieldTimer <= 0) player.hasShield = false;
+  if (player.batCooldown > 0) player.batCooldown--;
+
+  // Gun auto-fire
+  if (player.weaponTier >= 2) {
+    player.gunTimer--;
+    if (player.gunTimer <= 0) {
+      const fireRate = player.weaponTier === 2 ? 900 : player.weaponTier === 3 ? 600 : 300; // 15s, 10s, 5s at 60fps
+      player.gunTimer = fireRate;
+      spawnBullet();
+    }
+  }
+
+  // Move bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    bullets[i].x += 10;
+    if (bullets[i].x > canvas.width + 20) { bullets.splice(i, 1); continue; }
+    // Bullet-obstacle collision
+    for (let oi = obstacles.length - 1; oi >= 0; oi--) {
+      const o = obstacles[oi];
+      const b = bullets[i];
+      if (!b) break;
+      if (b.x + 8 > o.x && b.x < o.x + o.w && b.y + 4 > o.y && b.y < o.y + o.h) {
+        spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
+        obstacles.splice(oi, 1);
+        bullets.splice(i, 1);
+        score += 200;
+        playHitSound();
+        updateScoreUI();
+        break;
+      }
+    }
   }
 
   // platform collision
@@ -780,16 +812,24 @@ function update() {
         ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
       }
       if (rectOverlap(pb, ob)) {
-        // Shield protects player
+        // Car shield absorbs one hit then breaks
         if (player.hasShield) {
+          player.hasShield = false;
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
+          // Extra car-breaking particles
+          for (let pi = 0; pi < 12; pi++) {
+            particles.push({ x: player.x + player.w / 2, y: player.y + player.h / 2,
+              vx: (Math.random() - 0.5) * 8, vy: -2 - Math.random() * 5,
+              alpha: 1, size: 4 + Math.random() * 6, color: '#4488ff', life: 40 });
+          }
           obstacles.splice(oi, 1);
+          player.invincible = 30;
           playHitSound();
           continue;
         }
-        // Weapon destroys the enemy
-        if (player.hasWeapon) {
-          player.hasWeapon = false;
+        // Bat hits cops and K-9 on contact (30s cooldown)
+        if (player.weaponTier >= 1 && player.batCooldown <= 0 && (o.type === 'cop' || o.type === 'k9')) {
+          player.batCooldown = 1800; // 30 seconds at 60fps
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
           obstacles.splice(oi, 1);
           score += 200;
@@ -894,11 +934,75 @@ function playDenySound() {
   } catch (e) {}
 }
 
+function spawnBullet() {
+  const bx = player.x + player.w + 5;
+  const by = player.y + player.h / 2;
+  const isUzi = player.weaponTier === 4;
+  bullets.push({ x: bx, y: by + (isUzi ? (Math.random() - 0.5) * 8 : 0), w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
+  playGunshot();
+  // Uzi fires a quick burst (2 extra shots)
+  if (isUzi) {
+    setTimeout(() => {
+      if (state !== STATE.PLAYING) return;
+      bullets.push({ x: player.x + player.w + 5, y: player.y + player.h / 2 + (Math.random() - 0.5) * 8, w: 10, h: 3 });
+      playGunshot();
+    }, 80);
+    setTimeout(() => {
+      if (state !== STATE.PLAYING) return;
+      bullets.push({ x: player.x + player.w + 5, y: player.y + player.h / 2 + (Math.random() - 0.5) * 8, w: 10, h: 3 });
+      playGunshot();
+    }, 160);
+  }
+}
+
+function playGunshot() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const isUzi = player.weaponTier === 4;
+    // Sharp crack
+    const bufSize = Math.floor(audioCtx.sampleRate * (isUzi ? 0.06 : 0.1));
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      const env = i < bufSize * 0.05 ? 1 : Math.exp(-(i / bufSize) * 8);
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = isUzi ? 2000 : 1000;
+    const gain = audioCtx.createGain();
+    gain.gain.value = isUzi ? 0.2 : 0.35;
+    src.connect(filt);
+    filt.connect(gain);
+    gain.connect(audioCtx.destination);
+    src.start(t);
+    src.stop(t + (isUzi ? 0.06 : 0.1));
+    // Low thump
+    const osc = audioCtx.createOscillator();
+    const oGain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(isUzi ? 300 : 200, t);
+    osc.frequency.exponentialRampToValueAtTime(50, t + 0.08);
+    oGain.gain.setValueAtTime(isUzi ? 0.2 : 0.3, t);
+    oGain.gain.exponentialRampToValueAtTime(0.01, t + 0.08);
+    osc.connect(oGain);
+    oGain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.08);
+  } catch (e) {}
+}
+
 // --- Shop UI ---
-const SHOP_ITEMS = [
-  { name: 'WEAPON', desc: 'Baseball Bat', price: 500, icon: 'bat' },
-  { name: 'CAR', desc: 'Shield Ride', price: 1000, icon: 'car' },
-  { name: 'CHAIN', desc: 'Gold Chain', price: 300, icon: 'chain' },
+// Weapon tiers: 0=none, 1=bat, 2=pistol, 3=pistol+, 4=uzi
+const WEAPON_TIERS = [
+  null,
+  { name: 'BAT', desc: 'Hits cops & K-9s', price: 500 },
+  { name: 'PISTOL', desc: 'Shoots every 15s', price: 1200 },
+  { name: 'PISTOL+', desc: 'Shoots every 10s', price: 2500 },
+  { name: 'UZI', desc: '3-round burst / 5s', price: 5000 },
 ];
 
 function getShopLayout() {
@@ -926,10 +1030,26 @@ function getShopLayout() {
   return { cards, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
 }
 
+function getShopCardData() {
+  // Card 0: Next weapon upgrade
+  const nextTier = player.weaponTier + 1;
+  const maxedWeapon = nextTier > 4;
+  const wData = maxedWeapon ? null : WEAPON_TIERS[nextTier];
+  // Card 1: Car shield
+  // Card 2: Chain
+  return [
+    { name: maxedWeapon ? 'MAXED' : wData.name, desc: maxedWeapon ? 'All upgrades!' : wData.desc,
+      price: maxedWeapon ? 0 : wData.price, owned: maxedWeapon, type: 'weapon', tier: nextTier },
+    { name: 'CAR', desc: 'One-hit shield', price: 1000, owned: player.hasShield, type: 'car' },
+    { name: 'CHAIN', desc: 'Gold Chain', price: 300, owned: false, type: 'chain' },
+  ];
+}
+
 function drawShop() {
   if (state !== STATE.SHOP) return;
   const w = canvas.width, h = canvas.height;
   const layout = getShopLayout();
+  const shopCards = getShopCardData();
 
   // Dark overlay
   ctx.save();
@@ -945,10 +1065,11 @@ function drawShop() {
   ctx.fillText('SHOP', w / 2, h * 0.12);
   ctx.shadowBlur = 0;
 
-  // Checkpoint distance
+  // Checkpoint + current weapon indicator
   ctx.fillStyle = '#aaa';
   ctx.font = Math.min(14, w * 0.035) + 'px Arial';
-  ctx.fillText('Checkpoint: ' + distance + 'm', w / 2, h * 0.17);
+  const weaponNames = ['None', 'Bat', 'Pistol', 'Pistol+', 'Uzi'];
+  ctx.fillText('Checkpoint: ' + distance + 'm  |  Weapon: ' + weaponNames[player.weaponTier], w / 2, h * 0.17);
 
   // Cash balance
   ctx.fillStyle = '#00e676';
@@ -957,14 +1078,13 @@ function drawShop() {
 
   // Draw item cards
   for (let i = 0; i < 3; i++) {
-    const item = SHOP_ITEMS[i];
+    const item = shopCards[i];
     const card = layout.cards[i];
-    const canAfford = cashCollected >= item.price;
-    const alreadyHas = (i === 0 && player.hasWeapon) || (i === 1 && player.hasShield);
+    const canAfford = cashCollected >= item.price && !item.owned;
 
     // Card background
-    ctx.fillStyle = alreadyHas ? 'rgba(0,200,100,0.2)' : canAfford ? 'rgba(255,215,0,0.12)' : 'rgba(100,100,100,0.12)';
-    ctx.strokeStyle = alreadyHas ? '#00e676' : canAfford ? 'rgba(255,215,0,0.6)' : 'rgba(100,100,100,0.3)';
+    ctx.fillStyle = item.owned ? 'rgba(0,200,100,0.2)' : canAfford ? 'rgba(255,215,0,0.12)' : 'rgba(100,100,100,0.12)';
+    ctx.strokeStyle = item.owned ? '#00e676' : canAfford ? 'rgba(255,215,0,0.6)' : 'rgba(100,100,100,0.3)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect(card.x, card.y, card.w, card.h, 12);
@@ -976,27 +1096,27 @@ function drawShop() {
     const iconCy = card.y + card.h * 0.32;
     const iconSize = card.w * 0.3;
     ctx.save();
-    if (i === 0) drawBatIcon(iconCx, iconCy, iconSize, canAfford);
-    else if (i === 1) drawCarIcon(iconCx, iconCy, iconSize, canAfford);
+    if (i === 0) drawWeaponIcon(iconCx, iconCy, iconSize, canAfford || item.owned, item.tier);
+    else if (i === 1) drawCarIcon(iconCx, iconCy, iconSize, canAfford || item.owned);
     else drawChainIcon(iconCx, iconCy, iconSize, canAfford);
     ctx.restore();
 
     // Name
-    ctx.fillStyle = canAfford ? '#fff' : '#666';
+    ctx.fillStyle = (canAfford || item.owned) ? '#fff' : '#666';
     ctx.font = 'bold ' + Math.min(13, card.w * 0.11) + 'px Arial';
     ctx.textAlign = 'center';
     ctx.fillText(item.name, iconCx, card.y + card.h * 0.6);
 
     // Description
-    ctx.fillStyle = canAfford ? '#aaa' : '#555';
+    ctx.fillStyle = (canAfford || item.owned) ? '#aaa' : '#555';
     ctx.font = Math.min(10, card.w * 0.085) + 'px Arial';
     ctx.fillText(item.desc, iconCx, card.y + card.h * 0.72);
 
-    // Price
-    if (alreadyHas) {
+    // Price / status
+    if (item.owned) {
       ctx.fillStyle = '#00e676';
       ctx.font = 'bold ' + Math.min(14, card.w * 0.12) + 'px Arial';
-      ctx.fillText('OWNED', iconCx, card.y + card.h * 0.88);
+      ctx.fillText(item.type === 'weapon' ? 'MAX' : 'OWNED', iconCx, card.y + card.h * 0.88);
     } else {
       ctx.fillStyle = canAfford ? '#ffd700' : '#666';
       ctx.font = 'bold ' + Math.min(14, card.w * 0.12) + 'px Arial';
@@ -1021,22 +1141,86 @@ function drawShop() {
   ctx.restore();
 }
 
-function drawBatIcon(cx, cy, size, active) {
+function drawWeaponIcon(cx, cy, size, active, tier) {
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.rotate(-0.5);
-  ctx.fillStyle = active ? '#8B4513' : '#444';
-  ctx.beginPath();
-  ctx.roundRect(-size * 0.15, -size * 1.2, size * 0.3, size * 2.2, 3);
-  ctx.fill();
-  // Handle wrap
-  ctx.fillStyle = active ? '#333' : '#333';
-  ctx.fillRect(-size * 0.18, size * 0.5, size * 0.36, size * 0.5);
-  // Bat head (wider top)
-  ctx.fillStyle = active ? '#A0522D' : '#555';
-  ctx.beginPath();
-  ctx.roundRect(-size * 0.25, -size * 1.3, size * 0.5, size * 0.6, 5);
-  ctx.fill();
+  if (tier <= 1) {
+    // Bat
+    ctx.rotate(-0.5);
+    ctx.fillStyle = active ? '#8B4513' : '#444';
+    ctx.beginPath();
+    ctx.roundRect(-size * 0.15, -size * 1.2, size * 0.3, size * 2.2, 3);
+    ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-size * 0.18, size * 0.5, size * 0.36, size * 0.5);
+    ctx.fillStyle = active ? '#A0522D' : '#555';
+    ctx.beginPath();
+    ctx.roundRect(-size * 0.25, -size * 1.3, size * 0.5, size * 0.6, 5);
+    ctx.fill();
+  } else if (tier <= 3) {
+    // Pistol
+    const c1 = active ? '#555' : '#333';
+    const c2 = active ? '#888' : '#555';
+    // Barrel
+    ctx.fillStyle = c2;
+    ctx.beginPath();
+    ctx.roundRect(-size * 0.8, -size * 0.15, size * 1.4, size * 0.3, 2);
+    ctx.fill();
+    // Body
+    ctx.fillStyle = c1;
+    ctx.beginPath();
+    ctx.roundRect(-size * 0.3, -size * 0.25, size * 0.8, size * 0.5, 3);
+    ctx.fill();
+    // Grip
+    ctx.fillStyle = active ? '#3a2518' : '#333';
+    ctx.beginPath();
+    ctx.roundRect(-size * 0.1, size * 0.2, size * 0.4, size * 0.7, 2);
+    ctx.fill();
+    // Trigger guard
+    ctx.strokeStyle = c1;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(size * 0.1, size * 0.3, size * 0.15, 0, Math.PI);
+    ctx.stroke();
+    if (tier === 3) {
+      // + upgrade indicator
+      ctx.fillStyle = active ? '#ffd700' : '#666';
+      ctx.font = 'bold ' + (size * 0.5) + 'px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('+', size * 0.7, -size * 0.3);
+    }
+  } else {
+    // Uzi
+    const c1 = active ? '#444' : '#333';
+    const c2 = active ? '#777' : '#555';
+    // Long barrel
+    ctx.fillStyle = c2;
+    ctx.beginPath();
+    ctx.roundRect(-size * 1.0, -size * 0.12, size * 1.6, size * 0.24, 2);
+    ctx.fill();
+    // Body (boxy)
+    ctx.fillStyle = c1;
+    ctx.fillRect(-size * 0.5, -size * 0.3, size * 1.0, size * 0.55);
+    // Magazine
+    ctx.fillStyle = active ? '#333' : '#222';
+    ctx.fillRect(-size * 0.1, size * 0.2, size * 0.25, size * 0.8);
+    // Grip
+    ctx.fillStyle = active ? '#3a2518' : '#333';
+    ctx.beginPath();
+    ctx.roundRect(size * 0.15, size * 0.2, size * 0.3, size * 0.6, 2);
+    ctx.fill();
+    // Stock
+    ctx.fillStyle = c1;
+    ctx.fillRect(size * 0.5, -size * 0.25, size * 0.15, size * 0.4);
+    ctx.fillRect(size * 0.5, -size * 0.25, size * 0.4, size * 0.1);
+    // Muzzle flash hint
+    if (active) {
+      ctx.fillStyle = 'rgba(255,200,0,0.4)';
+      ctx.beginPath();
+      ctx.arc(-size * 1.0, 0, size * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }
 
@@ -1123,26 +1307,22 @@ function handleShopClick(clientX, clientY) {
 }
 
 function buyItem(index) {
-  const item = SHOP_ITEMS[index];
-  // Check if already owned (weapon/shield)
-  if (index === 0 && player.hasWeapon) { playDenySound(); return; }
-  if (index === 1 && player.hasShield) { playDenySound(); return; }
-
-  if (cashCollected < item.price) {
-    playDenySound();
-    return;
-  }
+  const shopCards = getShopCardData();
+  const item = shopCards[index];
+  if (item.owned) { playDenySound(); return; }
+  if (cashCollected < item.price) { playDenySound(); return; }
 
   cashCollected -= item.price;
   playBuySound();
 
   if (index === 0) {
-    // Weapon - baseball bat
-    player.hasWeapon = true;
+    // Weapon upgrade
+    player.weaponTier = item.tier;
+    player.batCooldown = 0;
+    player.gunTimer = 60; // first shot comes quickly
   } else if (index === 1) {
-    // Car - shield for 8 seconds
+    // Car - one hit shield
     player.hasShield = true;
-    player.shieldTimer = 480; // 8 seconds at 60fps
   } else {
     // Chain
     player.chainsWorn++;
@@ -1593,34 +1773,66 @@ function drawPlayer() {
   ctx.arc(0, -66, 5, 0.2, Math.PI - 0.2);
   ctx.stroke();
 
-  // Weapon visual - baseball bat in hand
-  if (p.hasWeapon) {
+  // Weapon visual in hand
+  if (p.weaponTier === 1) {
+    // Bat in hand
     ctx.save();
     ctx.translate(16, -42 - armSwing);
     ctx.rotate(0.4);
-    // Bat handle
     ctx.fillStyle = '#333';
     ctx.fillRect(-2, -4, 4, 12);
-    // Bat body
     ctx.fillStyle = '#8B4513';
     ctx.beginPath();
     ctx.roundRect(-3, -22, 6, 20, 2);
     ctx.fill();
-    // Bat top
     ctx.fillStyle = '#A0522D';
     ctx.beginPath();
     ctx.roundRect(-4, -26, 8, 6, 3);
     ctx.fill();
+    // Cooldown indicator
+    if (p.batCooldown > 0) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ff4444';
+      ctx.beginPath();
+      ctx.arc(0, -14, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  } else if (p.weaponTier === 2 || p.weaponTier === 3) {
+    // Pistol in hand
+    ctx.save();
+    ctx.translate(18, -40 - armSwing);
+    ctx.rotate(0.2);
+    ctx.fillStyle = '#555';
+    ctx.fillRect(-1, -12, 3, 10); // barrel
+    ctx.fillStyle = '#444';
+    ctx.fillRect(-2, -4, 5, 6); // body
+    ctx.fillStyle = '#3a2518';
+    ctx.fillRect(-1, 2, 4, 6); // grip
+    ctx.restore();
+  } else if (p.weaponTier === 4) {
+    // Uzi in hand
+    ctx.save();
+    ctx.translate(18, -42 - armSwing);
+    ctx.rotate(0.15);
+    ctx.fillStyle = '#555';
+    ctx.fillRect(-2, -16, 4, 14); // barrel
+    ctx.fillStyle = '#444';
+    ctx.fillRect(-3, -4, 7, 8); // body
+    ctx.fillStyle = '#333';
+    ctx.fillRect(0, 4, 3, 8); // magazine
+    ctx.fillStyle = '#3a2518';
+    ctx.fillRect(3, 2, 4, 6); // grip
     ctx.restore();
   }
 
   ctx.restore();
 
-  // Shield/car visual - drawn outside the player transform
+  // Car shield visual - drawn outside the player transform
   if (p.hasShield) {
     ctx.save();
-    const shieldAlpha = p.shieldTimer < 120 ? (Math.sin(frameCount * 0.3) * 0.3 + 0.5) : 0.7;
-    ctx.globalAlpha = shieldAlpha;
+    ctx.globalAlpha = 0.7;
     const carX = p.x + p.w / 2;
     const carY = p.y + p.h + walkOffset;
     // Car body around player
@@ -1652,6 +1864,25 @@ function drawPlayer() {
     ctx.beginPath();
     ctx.ellipse(carX, carY - 5, 32, 24, 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawBullets() {
+  for (const b of bullets) {
+    ctx.save();
+    ctx.fillStyle = '#ffdd44';
+    ctx.shadowColor = '#ffaa00';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Tracer trail
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#ff8800';
+    ctx.beginPath();
+    ctx.ellipse(b.x - 4, b.y + b.h / 2, 4, b.h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }
@@ -2039,6 +2270,7 @@ function gameLoop() {
   drawCollectibles();
   drawObstacles();
   drawPlayer();
+  drawBullets();
   drawParticles();
   drawSpeedLines();
   drawDeathScreen();
