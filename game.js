@@ -387,11 +387,14 @@ function spawnThings() {
       spawnCash(canvas.width + 20, gY - 30 - Math.random() * 120);
     } else if (r < 0.55) {
       spawnChain(canvas.width + 20, gY - 40 - Math.random() * 100);
-    } else if (r < 0.73) {
+    } else if (r < 0.75) {
       spawnCop(canvas.width + 20);
-    } else if (r < 0.88 && frameCount > 300) {
-      // SWAT team - appears after ~5 seconds, ~15% spawn chance
+    } else if (r < 0.82 && frameCount > 500) {
+      // SWAT team - rare, appears after ~8 seconds
       spawnSwat(canvas.width + 20);
+    } else if (r < 0.88 && frameCount > 400) {
+      // Helicopter - rare aerial threat, appears after ~7 seconds
+      spawnHelicopter(canvas.width + 20);
     } else {
       // cash row
       for (let i = 0; i < 4; i++) spawnCash(canvas.width + 20 + i * 32, gY - 55);
@@ -441,6 +444,19 @@ function spawnSwat(x) {
     speed: 0.3 + Math.random() * 0.3,
     frame: 0, frameTimer: 0,
     officerCount: 3,
+  });
+}
+
+function spawnHelicopter(x) {
+  const gY = GROUND_Y();
+  // Flies at jump height - dangerous when airborne
+  const h = 30, w = 70;
+  obstacles.push({
+    type: 'helicopter',
+    x, y: gY - 140 - Math.random() * 40, w, h,
+    speed: 1.5 + Math.random() * 0.8,
+    frame: 0, frameTimer: 0,
+    bladeAngle: 0,
   });
 }
 
@@ -564,10 +580,14 @@ function update() {
     c.angle += 0.04;
   }
 
-  // cop walk anim
+  // obstacle animations
   for (const o of obstacles) {
     o.frameTimer++;
     if (o.frameTimer > 8) { o.frame = (o.frame + 1) % 4; o.frameTimer = 0; }
+    if (o.type === 'helicopter') {
+      o.bladeAngle = (o.bladeAngle || 0) + 0.5;
+      o.x -= o.speed; // helicopter moves faster on its own
+    }
   }
 
   // collect items
@@ -584,12 +604,17 @@ function update() {
     }
   }
 
-  // obstacle collision (cops + swat)
+  // obstacle collision (cops + swat + helicopter)
   if (player.invincible === 0) {
     for (const o of obstacles) {
       const pb = { x: player.x + 8, y: player.y + 8, w: player.w - 16, h: player.h - 12 };
-      const shrinkX = o.type === 'swat' ? 4 : 6;
-      const ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
+      let ob;
+      if (o.type === 'helicopter') {
+        ob = { x: o.x + 8, y: o.y + 6, w: o.w - 16, h: o.h - 8 };
+      } else {
+        const shrinkX = o.type === 'swat' ? 4 : 6;
+        ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
+      }
       if (rectOverlap(pb, ob)) {
         killPlayer();
         return;
@@ -952,8 +977,8 @@ function drawPlayer() {
   if (p.chainsWorn > 0) {
     const chainColors = ['#ffd700', '#ffec80', '#daa520', '#fff176', '#e6be00'];
     for (let i = p.chainsWorn - 1; i >= 0; i--) {
-      const radius = 7 + i * 2.5;
-      const cy = -46 + i * 1.5;
+      const radius = 6 + i * 2;
+      const cy = -52 + i * 1;
       // Gold glow
       ctx.save();
       ctx.shadowColor = '#ffd700';
@@ -974,8 +999,8 @@ function drawPlayer() {
     }
     // Pendant on longest chain (last collected = outermost)
     const lastIdx = p.chainsWorn - 1;
-    const pendantR = 7 + lastIdx * 2.5;
-    const pendantCy = -46 + lastIdx * 1.5;
+    const pendantR = 6 + lastIdx * 2;
+    const pendantCy = -52 + lastIdx * 1;
     const px = 0;
     const py = pendantCy + pendantR;
     ctx.save();
@@ -1159,9 +1184,110 @@ function drawSwat(swat) {
   ctx.restore();
 }
 
+function drawHelicopter(heli) {
+  const x = heli.x, y = heli.y, w = heli.w, h = heli.h;
+  const cx = x + w / 2, cy = y + h / 2;
+  // Slight hover bob
+  const bob = Math.sin(frameCount * 0.15) * 2;
+
+  ctx.save();
+  ctx.translate(cx, cy + bob);
+
+  // Tail boom
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(-35, -3, 25, 6);
+  // Tail rotor
+  ctx.fillStyle = '#444';
+  const tailSpin = Math.sin(heli.bladeAngle * 2) * 8;
+  ctx.fillRect(-36, -3 + tailSpin - 4, 3, 8);
+  // Tail fin
+  ctx.fillStyle = '#252540';
+  ctx.beginPath();
+  ctx.moveTo(-35, -6);
+  ctx.lineTo(-38, -14);
+  ctx.lineTo(-32, -6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Main body
+  ctx.fillStyle = '#1a1a2e';
+  ctx.beginPath();
+  ctx.ellipse(5, 0, 22, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Cockpit window
+  ctx.fillStyle = 'rgba(100,180,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(14, -2, 10, 8, 0.15, -0.8, 0.8);
+  ctx.fill();
+  // Window frame
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(14, -2, 10, 8, 0.15, -0.8, 0.8);
+  ctx.stroke();
+
+  // Skids (landing gear)
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-8, 12);
+  ctx.lineTo(20, 12);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-5, 12);
+  ctx.lineTo(-2, 8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(15, 12);
+  ctx.lineTo(12, 8);
+  ctx.stroke();
+
+  // Rotor mast
+  ctx.fillStyle = '#444';
+  ctx.fillRect(2, -14, 4, 4);
+
+  // Main rotor blades (spinning)
+  ctx.save();
+  ctx.translate(4, -14);
+  ctx.rotate(heli.bladeAngle);
+  ctx.fillStyle = 'rgba(150,150,150,0.7)';
+  ctx.fillRect(-30, -2, 60, 4);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(4, -14);
+  ctx.rotate(heli.bladeAngle + Math.PI / 2);
+  ctx.fillStyle = 'rgba(150,150,150,0.5)';
+  ctx.fillRect(-30, -2, 60, 4);
+  ctx.restore();
+
+  // Red/blue police lights
+  const flash = Math.sin(frameCount * 0.4) > 0;
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = flash ? '#ff0000' : '#0066ff';
+  ctx.beginPath();
+  ctx.arc(5, -12, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Searchlight beam
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  ctx.fillStyle = '#ffffaa';
+  ctx.beginPath();
+  ctx.moveTo(10, 10);
+  ctx.lineTo(-10, 80);
+  ctx.lineTo(30, 80);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
 function drawObstacles() {
   for (const o of obstacles) {
     if (o.type === 'swat') drawSwat(o);
+    else if (o.type === 'helicopter') drawHelicopter(o);
     else drawCop(o);
   }
 }
