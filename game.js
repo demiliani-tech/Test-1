@@ -711,8 +711,9 @@ function update() {
 
   // Move bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
-    bullets[i].x += 12;
-    if (bullets[i].x > canvas.width + 20) { bullets.splice(i, 1); continue; }
+    bullets[i].x += (bullets[i].vx || 12);
+    bullets[i].y += (bullets[i].vy || 0);
+    if (bullets[i].x > canvas.width + 20 || bullets[i].y < -20 || bullets[i].y > canvas.height + 20) { bullets.splice(i, 1); continue; }
     // Bullet-obstacle collision
     for (let oi = obstacles.length - 1; oi >= 0; oi--) {
       const o = obstacles[oi];
@@ -1097,25 +1098,38 @@ function spawnBulletAt(target) {
   const bx = player.x + player.w + 5;
   const by = player.y + player.h / 2;
   const isUzi = player.weaponTier === 4;
-  // Aim bullet toward the target's center Y
-  const targetY = target.y + target.h / 2;
-  const spread = isUzi ? 6 : 2;
+  // Aim bullet toward the target's center
+  const targetCx = target.x + target.w / 2;
+  const targetCy = target.y + target.h / 2;
+  const dx = targetCx - bx;
+  const dy = targetCy - by;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const bulletSpeed = 12;
+  const bvx = (dx / dist) * bulletSpeed;
+  const bvy = (dy / dist) * bulletSpeed;
+  const spread = isUzi ? 0.08 : 0.03;
 
-  bullets.push({ x: bx, y: by + (Math.random() - 0.5) * spread, w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
+  bullets.push({ x: bx, y: by, vx: bvx, vy: bvy + (Math.random() - 0.5) * spread * bulletSpeed, w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
   player.muzzleFlash = 8;
   playGunshot();
 
-  // Uzi fires 3 total shots (burst)
+  // Uzi fires 3 total shots (burst) - each aims fresh at target
   if (isUzi) {
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
-      bullets.push({ x: player.x + player.w + 5, y: player.y + player.h / 2 + (Math.random() - 0.5) * 8, w: 10, h: 3 });
+      const sx = player.x + player.w + 5, sy = player.y + player.h / 2;
+      const tdx = targetCx - sx, tdy = targetCy - sy;
+      const td = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+      bullets.push({ x: sx, y: sy, vx: (tdx / td) * bulletSpeed, vy: (tdy / td) * bulletSpeed + (Math.random() - 0.5) * 1.5, w: 10, h: 3 });
       player.muzzleFlash = 6;
       playGunshot();
     }, 80);
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
-      bullets.push({ x: player.x + player.w + 5, y: player.y + player.h / 2 + (Math.random() - 0.5) * 8, w: 10, h: 3 });
+      const sx = player.x + player.w + 5, sy = player.y + player.h / 2;
+      const tdx = targetCx - sx, tdy = targetCy - sy;
+      const td = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+      bullets.push({ x: sx, y: sy, vx: (tdx / td) * bulletSpeed, vy: (tdy / td) * bulletSpeed + (Math.random() - 0.5) * 1.5, w: 10, h: 3 });
       player.muzzleFlash = 6;
       playGunshot();
     }, 160);
