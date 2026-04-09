@@ -552,6 +552,7 @@ let blockSelectedBuilding = -1; // which building is tapped for upgrade panel
 const BUILDINGS = {
   trapHouse: {
     name: 'TRAP HOUSE',
+    blockName: 'TRAP HOUSE',
     levels: [
       { cost: 0, label: 'Empty', desc: 'No perks', effect: null },
       { cost: 25, label: 'Lv 1', desc: 'Start with Bat', effect: { weaponTier: 1 } },
@@ -561,7 +562,8 @@ const BUILDINGS = {
     ],
   },
   garage: {
-    name: 'GARAGE',
+    name: 'CHOP SHOP',
+    blockName: 'CHOP SHOP',
     levels: [
       { cost: 0, label: 'Empty', desc: 'No car', effect: null },
       { cost: 50, label: 'Lv 1', desc: 'Start with Car', effect: { carHits: 1 } },
@@ -570,7 +572,8 @@ const BUILDINGS = {
     ],
   },
   clothing: {
-    name: 'CLOTHING',
+    name: 'NIGHTCLUB',
+    blockName: 'NIGHTCLUB',
     levels: [
       { cost: 0, label: 'Default', desc: 'Basic fit', effect: null },
       { cost: 20, label: 'Gold', desc: 'Gold outfit', effect: { shirt: '#ffd700', pants: '#b8860b', sneakers: '#ffd700' } },
@@ -3228,22 +3231,22 @@ let blockFrameCount = 0;
 
 function getBlockLayout() {
   const w = canvas.width, h = canvas.height;
-  const groundY = h - 70;
-  const streetY = groundY;
+  const streetY = h * 0.68; // moved up significantly
 
   // 3 buildings side by side
-  const gap = Math.min(12, w * 0.025);
+  const gap = Math.min(10, w * 0.02);
   const bldgW = Math.min(110, (w - gap * 4) / 3);
   const totalW = bldgW * 3 + gap * 2;
   const startX = (w - totalW) / 2;
 
   const keys = ['trapHouse', 'garage', 'clothing'];
+  const baseHeights = [0.32, 0.22, 0.3]; // trap house tall, chop shop low/wide, nightclub medium
   const buildings = [];
   for (let i = 0; i < 3; i++) {
     const lvl = buildingLevels[keys[i]];
     const maxLvl = BUILDINGS[keys[i]].levels.length - 1;
-    const heightScale = 0.4 + (lvl / maxLvl) * 0.4; // taller as upgraded
-    const bH = Math.floor(h * heightScale);
+    const growFactor = 0.08 * lvl;
+    const bH = Math.floor(h * (baseHeights[i] + growFactor));
     buildings.push({
       x: startX + i * (bldgW + gap),
       y: streetY - bH,
@@ -3253,11 +3256,11 @@ function getBlockLayout() {
     });
   }
 
-  // START RUN button
+  // START RUN button - well above bottom
   const btnW = Math.min(200, w * 0.5);
-  const btnH = 46;
+  const btnH = 44;
   const btnX = (w - btnW) / 2;
-  const btnY = h - 52;
+  const btnY = streetY + (h - streetY) * 0.35;
 
   return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
 }
@@ -3267,17 +3270,17 @@ function drawBlock() {
   blockFrameCount++;
 
   // Night sky gradient
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.6);
-  skyGrad.addColorStop(0, '#0a0a1a');
-  skyGrad.addColorStop(1, '#1a1a3e');
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.5);
+  skyGrad.addColorStop(0, '#050510');
+  skyGrad.addColorStop(1, '#141430');
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, w, h);
 
   // Stars
   ctx.fillStyle = '#fff';
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 25; i++) {
     const sx = (i * 137.5 + 50) % w;
-    const sy = (i * 89.3 + 20) % (h * 0.4);
+    const sy = (i * 89.3 + 10) % (h * 0.3);
     const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(blockFrameCount * 0.02 + i));
     ctx.globalAlpha = twinkle * 0.8;
     ctx.beginPath();
@@ -3286,123 +3289,71 @@ function drawBlock() {
   }
   ctx.globalAlpha = 1;
 
+  // Title + chains at top
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(22, w * 0.055) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#ffd700';
+  ctx.shadowBlur = 10;
+  ctx.fillText('YOUR BLOCK', w / 2, 24);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold ' + Math.min(15, w * 0.038) + 'px Arial';
+  ctx.fillText('Saved Chains: ' + savedChains, w / 2, 44);
+
   const layout = getBlockLayout();
 
-  // Street / ground
+  // Street
   ctx.fillStyle = '#2a2a2a';
   ctx.fillRect(0, layout.streetY, w, h - layout.streetY);
   // Sidewalk
   ctx.fillStyle = '#555';
-  ctx.fillRect(0, layout.streetY - 8, w, 8);
-  // Road line
+  ctx.fillRect(0, layout.streetY - 6, w, 6);
+  // Road markings
   ctx.strokeStyle = '#ffd700';
   ctx.lineWidth = 2;
-  ctx.setLineDash([20, 15]);
+  ctx.setLineDash([18, 14]);
   ctx.beginPath();
-  ctx.moveTo(0, h - 30);
-  ctx.lineTo(w, h - 30);
+  ctx.moveTo(0, layout.streetY + (h - layout.streetY) * 0.6);
+  ctx.lineTo(w, layout.streetY + (h - layout.streetY) * 0.6);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Draw buildings
-  const buildingColors = [
-    ['#5c1a1a', '#8b2a2a', '#a33'], // Trap House - red/dark
-    ['#1a3a5c', '#2a5a8b', '#36a'], // Garage - blue
-    ['#3a1a5c', '#5a2a8b', '#a3a'], // Clothing - purple
-  ];
-
+  // Draw each themed building
   for (let i = 0; i < 3; i++) {
     const b = layout.buildings[i];
     const key = b.key;
     const lvl = buildingLevels[key];
     const maxLvl = BUILDINGS[key].levels.length - 1;
-    const cols = buildingColors[i];
     const selected = blockSelectedBuilding === i;
 
-    // Building body
-    const bGrad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
-    bGrad.addColorStop(0, cols[0]);
-    bGrad.addColorStop(0.5, cols[1]);
-    bGrad.addColorStop(1, cols[0]);
-    ctx.fillStyle = bGrad;
-    ctx.beginPath();
-    ctx.roundRect(b.x, b.y, b.w, b.h, [6, 6, 0, 0]);
-    ctx.fill();
+    if (key === 'trapHouse') drawTrapHouse(b, lvl, selected, layout.streetY);
+    else if (key === 'garage') drawChopShop(b, lvl, selected, layout.streetY);
+    else drawNightclub(b, lvl, selected, layout.streetY);
 
-    // Selection glow
-    if (selected) {
-      ctx.strokeStyle = '#ffd700';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = '#ffd700';
-      ctx.shadowBlur = 15;
-      ctx.beginPath();
-      ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, [8, 8, 0, 0]);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-
-    // Windows (lit based on level)
-    const windowRows = Math.floor(b.h / 28);
-    const windowCols = Math.floor(b.w / 24);
-    for (let row = 0; row < windowRows; row++) {
-      for (let col = 0; col < windowCols; col++) {
-        const wx = b.x + 10 + col * 24;
-        const wy = b.y + 14 + row * 28;
-        if (wy + 14 > layout.streetY - 4) continue;
-        const lit = (row + col) % 3 < lvl;
-        ctx.fillStyle = lit ? 'rgba(255,220,100,0.7)' : 'rgba(30,30,40,0.6)';
-        ctx.fillRect(wx, wy, 14, 14);
-        if (lit) {
-          ctx.fillStyle = 'rgba(255,255,200,0.3)';
-          ctx.fillRect(wx + 2, wy + 2, 5, 5);
-        }
-      }
-    }
-
-    // Door
-    ctx.fillStyle = '#222';
-    const doorW = Math.min(22, b.w * 0.25);
-    const doorH = 30;
-    ctx.fillRect(b.x + (b.w - doorW) / 2, layout.streetY - doorH, doorW, doorH);
-    ctx.fillStyle = cols[2];
-    ctx.fillRect(b.x + (b.w - doorW) / 2 + 2, layout.streetY - doorH + 2, doorW - 4, doorH - 2);
-
-    // Building name
+    // Building name above
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold ' + Math.min(11, b.w * 0.1) + 'px Arial';
+    ctx.font = 'bold ' + Math.min(10, b.w * 0.095) + 'px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(BUILDINGS[key].name, b.x + b.w / 2, b.y - 18);
+    ctx.fillText(BUILDINGS[key].name, b.x + b.w / 2, b.y - 14);
 
     // Level indicator
     ctx.fillStyle = lvl >= maxLvl ? '#ffd700' : '#aaa';
-    ctx.font = Math.min(10, b.w * 0.09) + 'px Arial';
-    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 6);
+    ctx.font = Math.min(9, b.w * 0.08) + 'px Arial';
+    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 4);
   }
 
-  // Player character standing on the block
+  // Player
   const pX = w / 2 - 19;
-  const pY = layout.streetY - 56;
+  const pY = layout.streetY - 50;
   drawBlockPlayer(pX, pY);
 
-  // Saved chains display
-  ctx.fillStyle = '#ffd700';
-  ctx.font = 'bold ' + Math.min(24, w * 0.06) + 'px Arial Black, Impact, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.shadowColor = '#ffd700';
-  ctx.shadowBlur = 10;
-  ctx.fillText('YOUR BLOCK', w / 2, Math.min(36, h * 0.06));
-  ctx.shadowBlur = 0;
-
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial';
-  ctx.fillText('Saved Chains: ' + savedChains, w / 2, Math.min(58, h * 0.1));
-
-  // Upgrade panel if building selected
+  // Upgrade panel
   if (blockSelectedBuilding >= 0) {
     drawUpgradePanel(layout);
   }
 
-  // START RUN button (only if no panel open)
+  // START RUN button
   if (blockSelectedBuilding < 0) {
     const btn = layout.btn;
     const btnGrad = ctx.createLinearGradient(btn.x, btn.y, btn.x + btn.w, btn.y);
@@ -3410,12 +3361,309 @@ function drawBlock() {
     btnGrad.addColorStop(1, '#00c853');
     ctx.fillStyle = btnGrad;
     ctx.beginPath();
-    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 23);
+    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 22);
     ctx.fill();
     ctx.fillStyle = '#000';
-    ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
+    ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial Black, Impact, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('START RUN', btn.x + btn.w / 2, btn.y + btn.h / 2 + 7);
+    ctx.fillText('START RUN', btn.x + btn.w / 2, btn.y + btn.h / 2 + 6);
+  }
+}
+
+// --- Themed building drawings ---
+
+function drawTrapHouse(b, lvl, selected, streetY) {
+  // Rundown house look: boarded windows, graffiti, dim lights
+  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+  bGrad.addColorStop(0, '#4a2020');
+  bGrad.addColorStop(0.5, '#5c2828');
+  bGrad.addColorStop(1, '#3a1818');
+  ctx.fillStyle = bGrad;
+  ctx.beginPath();
+  ctx.roundRect(b.x, b.y, b.w, b.h, [4, 4, 0, 0]);
+  ctx.fill();
+
+  // Roof overhang
+  ctx.fillStyle = '#2a1010';
+  ctx.beginPath();
+  ctx.moveTo(b.x - 4, b.y);
+  ctx.lineTo(b.x + b.w / 2, b.y - 12);
+  ctx.lineTo(b.x + b.w + 4, b.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Selection glow
+  if (selected) {
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, [6, 6, 0, 0]);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Boarded/cracked windows - some lit based on level
+  const rows = Math.max(1, Math.floor(b.h / 32));
+  const cols = Math.max(1, Math.floor(b.w / 28));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wx = b.x + 8 + c * 28;
+      const wy = b.y + 18 + r * 32;
+      if (wy + 16 > streetY - 25) continue;
+      const lit = (r * cols + c) < lvl * 2;
+      // Window
+      ctx.fillStyle = lit ? 'rgba(255,180,50,0.6)' : 'rgba(20,15,15,0.8)';
+      ctx.fillRect(wx, wy, 16, 16);
+      // Boards on unlit windows
+      if (!lit) {
+        ctx.strokeStyle = '#5a3a1a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wx, wy + 5); ctx.lineTo(wx + 16, wy + 5);
+        ctx.moveTo(wx, wy + 11); ctx.lineTo(wx + 16, wy + 11);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Door - heavy, dark
+  const doorW = Math.min(24, b.w * 0.28);
+  const doorH = 32;
+  const doorX = b.x + (b.w - doorW) / 2;
+  ctx.fillStyle = '#1a0a0a';
+  ctx.fillRect(doorX, streetY - doorH, doorW, doorH);
+  ctx.fillStyle = '#3a1a1a';
+  ctx.fillRect(doorX + 2, streetY - doorH + 2, doorW - 4, doorH - 2);
+  // Door knob
+  ctx.fillStyle = '#aa8844';
+  ctx.beginPath();
+  ctx.arc(doorX + doorW - 6, streetY - doorH / 2, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Graffiti tag (small "$" or scribble)
+  ctx.fillStyle = 'rgba(255,50,50,0.4)';
+  ctx.font = 'bold ' + Math.min(14, b.w * 0.14) + 'px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText('$$$', b.x + 4, streetY - doorH - 8);
+
+  // Smoke/steam if upgraded
+  if (lvl >= 2) {
+    ctx.globalAlpha = 0.15 + 0.1 * Math.sin(blockFrameCount * 0.05);
+    ctx.fillStyle = '#888';
+    for (let s = 0; s < 3; s++) {
+      const sx = b.x + b.w * 0.3 + s * 12;
+      const sy = b.y - 8 - Math.sin(blockFrameCount * 0.03 + s) * 6;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4 + s * 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawChopShop(b, lvl, selected, streetY) {
+  // Garage/warehouse look: big roll-up door, tools, car parts
+  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+  bGrad.addColorStop(0, '#2a3a4a');
+  bGrad.addColorStop(0.5, '#1a2a3a');
+  bGrad.addColorStop(1, '#0a1a2a');
+  ctx.fillStyle = bGrad;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+
+  // Flat industrial roof
+  ctx.fillStyle = '#1a2530';
+  ctx.fillRect(b.x - 2, b.y, b.w + 4, 6);
+
+  if (selected) {
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.rect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Big garage roll-up door
+  const gDoorW = b.w * 0.7;
+  const gDoorH = Math.min(b.h * 0.6, 50);
+  const gDoorX = b.x + (b.w - gDoorW) / 2;
+  const gDoorY = streetY - gDoorH;
+  ctx.fillStyle = '#3a4a5a';
+  ctx.fillRect(gDoorX, gDoorY, gDoorW, gDoorH);
+  // Horizontal slats on door
+  ctx.strokeStyle = '#2a3a4a';
+  ctx.lineWidth = 1;
+  for (let s = 0; s < 6; s++) {
+    const sy = gDoorY + 4 + s * (gDoorH / 6);
+    ctx.beginPath();
+    ctx.moveTo(gDoorX, sy);
+    ctx.lineTo(gDoorX + gDoorW, sy);
+    ctx.stroke();
+  }
+  // Door handle
+  ctx.fillStyle = '#888';
+  ctx.fillRect(gDoorX + gDoorW / 2 - 8, gDoorY + gDoorH - 8, 16, 4);
+
+  // Small window up top
+  if (b.h > 60) {
+    const winY = b.y + 14;
+    ctx.fillStyle = lvl >= 1 ? 'rgba(100,180,255,0.5)' : 'rgba(20,30,40,0.8)';
+    ctx.fillRect(b.x + 8, winY, b.w - 16, 14);
+    ctx.strokeStyle = '#1a2a3a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x + 8, winY, b.w - 16, 14);
+    // Cross divider
+    ctx.beginPath();
+    ctx.moveTo(b.x + b.w / 2, winY);
+    ctx.lineTo(b.x + b.w / 2, winY + 14);
+    ctx.stroke();
+  }
+
+  // Oil stain on ground in front
+  ctx.fillStyle = 'rgba(20,20,20,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(b.x + b.w / 2, streetY + 4, b.w * 0.3, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // "CHOP SHOP" sign or tools indicator based on level
+  if (lvl >= 1) {
+    // Wrench icon
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b.x + b.w - 16, b.y + 12);
+    ctx.lineTo(b.x + b.w - 8, b.y + 24);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(b.x + b.w - 16, b.y + 10, 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Tire stack if upgraded
+  if (lvl >= 2) {
+    ctx.fillStyle = '#222';
+    for (let t = 0; t < 2; t++) {
+      ctx.beginPath();
+      ctx.arc(b.x + 10, streetY - 6 - t * 10, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawNightclub(b, lvl, selected, streetY) {
+  // Nightclub: neon lights, dark walls, pulsing colors, velvet rope
+  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+  bGrad.addColorStop(0, '#2a1040');
+  bGrad.addColorStop(0.5, '#1a0830');
+  bGrad.addColorStop(1, '#100520');
+  ctx.fillStyle = bGrad;
+  ctx.beginPath();
+  ctx.roundRect(b.x, b.y, b.w, b.h, [6, 6, 0, 0]);
+  ctx.fill();
+
+  // Flat roof with neon trim
+  const neonPulse = 0.5 + 0.5 * Math.sin(blockFrameCount * 0.06);
+  ctx.strokeStyle = `rgba(255,0,255,${0.4 + neonPulse * 0.4})`;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = '#ff00ff';
+  ctx.shadowBlur = 8 + neonPulse * 8;
+  ctx.beginPath();
+  ctx.moveTo(b.x, b.y + 2);
+  ctx.lineTo(b.x + b.w, b.y + 2);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  if (selected) {
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, [8, 8, 0, 0]);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Neon sign (pulsing club name)
+  const signY = b.y + Math.min(28, b.h * 0.15);
+  ctx.fillStyle = `rgba(255,100,255,${0.6 + neonPulse * 0.3})`;
+  ctx.shadowColor = '#ff00ff';
+  ctx.shadowBlur = 6 + neonPulse * 6;
+  ctx.font = 'bold ' + Math.min(10, b.w * 0.09) + 'px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('CLUB', b.x + b.w / 2, signY);
+  ctx.shadowBlur = 0;
+
+  // Dark tinted windows with color glow inside
+  const winColors = ['#ff00ff', '#00ffff', '#ff0066', '#6600ff'];
+  const rows = Math.max(1, Math.floor((b.h - 50) / 30));
+  for (let r = 0; r < rows; r++) {
+    const wy = b.y + 36 + r * 30;
+    if (wy + 16 > streetY - 30) continue;
+    ctx.fillStyle = 'rgba(10,5,20,0.9)';
+    ctx.fillRect(b.x + 6, wy, b.w - 12, 16);
+    // Interior glow based on level
+    if (r < lvl) {
+      const glowCol = winColors[(r + Math.floor(blockFrameCount / 30)) % winColors.length];
+      ctx.fillStyle = glowCol;
+      ctx.globalAlpha = 0.2 + 0.15 * Math.sin(blockFrameCount * 0.08 + r);
+      ctx.fillRect(b.x + 7, wy + 1, b.w - 14, 14);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Club door
+  const doorW = Math.min(22, b.w * 0.25);
+  const doorH = 30;
+  const doorX = b.x + (b.w - doorW) / 2;
+  ctx.fillStyle = '#0a0515';
+  ctx.fillRect(doorX, streetY - doorH, doorW, doorH);
+  ctx.fillStyle = '#2a1040';
+  ctx.fillRect(doorX + 2, streetY - doorH + 2, doorW - 4, doorH - 2);
+
+  // Velvet rope
+  if (lvl >= 1) {
+    ctx.strokeStyle = '#cc0044';
+    ctx.lineWidth = 2;
+    const ropeY = streetY - 4;
+    // Left post
+    ctx.fillStyle = '#888';
+    ctx.fillRect(doorX - 10, ropeY - 14, 3, 14);
+    // Right post
+    ctx.fillRect(doorX + doorW + 7, ropeY - 14, 3, 14);
+    // Rope
+    ctx.beginPath();
+    ctx.moveTo(doorX - 8, ropeY - 10);
+    ctx.quadraticCurveTo(doorX + doorW / 2, ropeY - 4, doorX + doorW + 8, ropeY - 10);
+    ctx.stroke();
+  }
+
+  // Bouncing light beams from roof if upgraded
+  if (lvl >= 2) {
+    ctx.globalAlpha = 0.08 + 0.04 * Math.sin(blockFrameCount * 0.04);
+    const beamAngle = Math.sin(blockFrameCount * 0.03) * 0.3;
+    ctx.fillStyle = '#ff00ff';
+    ctx.beginPath();
+    ctx.moveTo(b.x + b.w / 2, b.y);
+    ctx.lineTo(b.x + b.w / 2 - 30 + Math.sin(beamAngle) * 20, b.y - 40);
+    ctx.lineTo(b.x + b.w / 2 + 10 + Math.sin(beamAngle) * 20, b.y - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#00ffff';
+    ctx.beginPath();
+    ctx.moveTo(b.x + b.w / 2, b.y);
+    ctx.lineTo(b.x + b.w / 2 + 20 - Math.sin(beamAngle) * 20, b.y - 35);
+    ctx.lineTo(b.x + b.w / 2 + 40 - Math.sin(beamAngle) * 20, b.y - 35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 }
 
