@@ -12,6 +12,229 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
+// --- Music System (Web Audio API) ---
+let audioCtx = null;
+let musicPlaying = false;
+let musicNodes = {};
+const BPM = 95;
+const BEAT = 60 / BPM;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function startMusic() {
+  if (musicPlaying) return;
+  initAudio();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  musicPlaying = true;
+
+  const master = audioCtx.createGain();
+  master.gain.value = 0.45;
+  master.connect(audioCtx.destination);
+  musicNodes.master = master;
+
+  // Compressor for punch
+  const comp = audioCtx.createDynamicsCompressor();
+  comp.threshold.value = -18;
+  comp.ratio.value = 6;
+  comp.connect(master);
+  musicNodes.comp = comp;
+
+  loopBeat(comp);
+  loopBass(comp);
+  loopMelody(comp);
+  loopHiHat(comp);
+}
+
+function stopMusic() {
+  musicPlaying = false;
+  if (musicNodes.master) {
+    musicNodes.master.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+  }
+  // Clear all scheduled timeouts
+  if (musicNodes.beatTimeout) clearTimeout(musicNodes.beatTimeout);
+  if (musicNodes.bassTimeout) clearTimeout(musicNodes.bassTimeout);
+  if (musicNodes.melodyTimeout) clearTimeout(musicNodes.melodyTimeout);
+  if (musicNodes.hihatTimeout) clearTimeout(musicNodes.hihatTimeout);
+  musicNodes = {};
+}
+
+function playKick(dest, time) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(150, time);
+  osc.frequency.exponentialRampToValueAtTime(30, time + 0.12);
+  gain.gain.setValueAtTime(0.9, time);
+  gain.gain.exponentialRampToValueAtTime(0.01, time + 0.25);
+  osc.connect(gain);
+  gain.connect(dest);
+  osc.start(time);
+  osc.stop(time + 0.25);
+}
+
+function playSnare(dest, time) {
+  // noise burst
+  const bufSize = audioCtx.sampleRate * 0.1;
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.6, time);
+  noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.12);
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'highpass';
+  filt.frequency.value = 1500;
+  noise.connect(filt);
+  filt.connect(noiseGain);
+  noiseGain.connect(dest);
+  noise.start(time);
+  noise.stop(time + 0.12);
+
+  // body
+  const osc = audioCtx.createOscillator();
+  const oscGain = audioCtx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(180, time);
+  osc.frequency.exponentialRampToValueAtTime(80, time + 0.08);
+  oscGain.gain.setValueAtTime(0.5, time);
+  oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+  osc.connect(oscGain);
+  oscGain.connect(dest);
+  osc.start(time);
+  osc.stop(time + 0.1);
+}
+
+function playHiHat(dest, time, open) {
+  const bufSize = audioCtx.sampleRate * (open ? 0.08 : 0.03);
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(open ? 0.15 : 0.12, time);
+  gain.gain.exponentialRampToValueAtTime(0.01, time + (open ? 0.08 : 0.03));
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'bandpass';
+  filt.frequency.value = 8000;
+  filt.Q.value = 2;
+  noise.connect(filt);
+  filt.connect(gain);
+  gain.connect(dest);
+  noise.start(time);
+  noise.stop(time + (open ? 0.08 : 0.03));
+}
+
+// Drum loop: classic boom-bap pattern
+function loopBeat(dest) {
+  if (!musicPlaying) return;
+  const t = audioCtx.currentTime + 0.05;
+  // 4 beats per bar, 2 bars
+  // Pattern: K...S...K.K.S...
+  playKick(dest, t);
+  playSnare(dest, t + BEAT);
+  playKick(dest, t + BEAT * 2);
+  playKick(dest, t + BEAT * 2.5);
+  playSnare(dest, t + BEAT * 3);
+  // bar 2
+  playKick(dest, t + BEAT * 4);
+  playSnare(dest, t + BEAT * 5);
+  playKick(dest, t + BEAT * 6);
+  playKick(dest, t + BEAT * 6.75);
+  playSnare(dest, t + BEAT * 7);
+
+  musicNodes.beatTimeout = setTimeout(() => loopBeat(dest), BEAT * 8 * 1000);
+}
+
+// Bass line: trap-style sub bass
+function loopBass(dest) {
+  if (!musicPlaying) return;
+  const t = audioCtx.currentTime + 0.05;
+  // E minor pentatonic bass notes
+  const notes = [82.41, 98, 82.41, 73.42, 82.41, 110, 98, 82.41];
+  const rhythm = [0, 1, 2, 3, 4, 5, 6, 7];
+
+  for (let i = 0; i < notes.length; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = notes[i];
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 200;
+    filt.Q.value = 5;
+    gain.gain.setValueAtTime(0.35, t + rhythm[i] * BEAT);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + rhythm[i] * BEAT + BEAT * 0.8);
+    osc.connect(filt);
+    filt.connect(gain);
+    gain.connect(dest);
+    osc.start(t + rhythm[i] * BEAT);
+    osc.stop(t + rhythm[i] * BEAT + BEAT * 0.85);
+  }
+
+  musicNodes.bassTimeout = setTimeout(() => loopBass(dest), BEAT * 8 * 1000);
+}
+
+// Melody: dark minor key synth
+function loopMelody(dest) {
+  if (!musicPlaying) return;
+  const t = audioCtx.currentTime + 0.05;
+  // E minor melody pattern
+  const melodyNotes = [329.63, 392, 440, 392, 329.63, 293.66, 329.63, 0];
+  const durations =   [1,      0.5, 0.5, 1,   0.5,    0.5,    1.5,    1.5];
+  let offset = 0;
+
+  for (let i = 0; i < melodyNotes.length; i++) {
+    if (melodyNotes[i] > 0) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = melodyNotes[i];
+      // Detuned slightly for richness
+      const osc2 = audioCtx.createOscillator();
+      osc2.type = 'sawtooth';
+      osc2.frequency.value = melodyNotes[i] * 1.003;
+      const filt = audioCtx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 1200;
+
+      gain.gain.setValueAtTime(0, t + offset * BEAT);
+      gain.gain.linearRampToValueAtTime(0.08, t + offset * BEAT + 0.03);
+      gain.gain.setValueAtTime(0.08, t + (offset + durations[i] * 0.7) * BEAT);
+      gain.gain.linearRampToValueAtTime(0.001, t + (offset + durations[i]) * BEAT);
+
+      osc.connect(filt);
+      osc2.connect(filt);
+      filt.connect(gain);
+      gain.connect(dest);
+      osc.start(t + offset * BEAT);
+      osc.stop(t + (offset + durations[i]) * BEAT + 0.01);
+      osc2.start(t + offset * BEAT);
+      osc2.stop(t + (offset + durations[i]) * BEAT + 0.01);
+    }
+    offset += durations[i];
+  }
+
+  musicNodes.melodyTimeout = setTimeout(() => loopMelody(dest), BEAT * 8 * 1000 - 50);
+}
+
+// Hi-hat pattern: eighth notes with some open hats
+function loopHiHat(dest) {
+  if (!musicPlaying) return;
+  const t = audioCtx.currentTime + 0.05;
+  // 16 eighth notes over 8 beats (every half beat)
+  for (let i = 0; i < 16; i++) {
+    const open = (i === 3 || i === 7 || i === 11 || i === 15);
+    playHiHat(dest, t + i * BEAT * 0.5, open);
+  }
+  musicNodes.hihatTimeout = setTimeout(() => loopHiHat(dest), BEAT * 8 * 1000);
+}
+
 // --- Game state ---
 const STATE = { START: 0, PLAYING: 1, DEAD: 2 };
 let state = STATE.START;
@@ -36,6 +259,7 @@ const player = {
   pantsColor: '#1a1a2e',
   sneakerColor: '#fff',
   bling: 0,
+  chainsWorn: 0,
 };
 
 const GRAVITY = 0.55;
@@ -107,10 +331,12 @@ function startGame() {
   player.invincible = 0;
   player.frame = 0;
   player.bling = 0;
+  player.chainsWorn = 0;
   platforms = [];
   initClouds();
   spawnInitialPlatforms();
   updateScoreUI();
+  startMusic();
   if (animFrame) cancelAnimationFrame(animFrame);
   gameLoop();
 }
@@ -155,12 +381,15 @@ function spawnThings() {
   if (spawnTimer > gap) {
     spawnTimer = 0;
     const r = Math.random();
-    if (r < 0.4) {
+    if (r < 0.38) {
       spawnCash(canvas.width + 20, gY - 30 - Math.random() * 120);
-    } else if (r < 0.62) {
+    } else if (r < 0.58) {
       spawnChain(canvas.width + 20, gY - 40 - Math.random() * 100);
-    } else if (r < 0.85) {
+    } else if (r < 0.78) {
       spawnCop(canvas.width + 20);
+    } else if (r < 0.87 && frameCount > 600) {
+      // SWAT team - only after ~10 seconds, rare spawn
+      spawnSwat(canvas.width + 20);
     } else {
       // cash row
       for (let i = 0; i < 4; i++) spawnCash(canvas.width + 20 + i * 32, gY - 55);
@@ -193,9 +422,23 @@ function spawnCop(x) {
   const gY = GROUND_Y();
   const h = 58, w = 36;
   obstacles.push({
+    type: 'cop',
     x, y: gY - h, w, h,
     speed: 0.5 + Math.random() * 0.4,
     frame: 0, frameTimer: 0,
+  });
+}
+
+function spawnSwat(x) {
+  const gY = GROUND_Y();
+  // SWAT team: 3 officers side by side = wider obstacle, taller
+  const h = 62, w = 90;
+  obstacles.push({
+    type: 'swat',
+    x, y: gY - h, w, h,
+    speed: 0.3 + Math.random() * 0.3,
+    frame: 0, frameTimer: 0,
+    officerCount: 3,
   });
 }
 
@@ -333,17 +576,18 @@ function update() {
     if (rectOverlap(hitbox, pb)) {
       spawnCollectParticles(c.x + c.w / 2, c.y + c.h / 2, c.type);
       if (c.type === 'cash') { cashCollected += 100; score += 100; player.bling = Math.min(player.bling + 1, 5); }
-      else { chainsCollected++; score += 500; player.bling = Math.min(player.bling + 2, 5); }
+      else { chainsCollected++; score += 500; player.bling = Math.min(player.bling + 2, 5); player.chainsWorn = Math.min(player.chainsWorn + 1, 5); }
       collectibles.splice(i, 1);
       updateScoreUI();
     }
   }
 
-  // cop collision
+  // obstacle collision (cops + swat)
   if (player.invincible === 0) {
     for (const o of obstacles) {
       const pb = { x: player.x + 8, y: player.y + 8, w: player.w - 16, h: player.h - 12 };
-      const ob = { x: o.x + 6, y: o.y + 4, w: o.w - 12, h: o.h - 4 };
+      const shrinkX = o.type === 'swat' ? 4 : 6;
+      const ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
       if (rectOverlap(pb, ob)) {
         killPlayer();
         return;
@@ -369,6 +613,7 @@ function update() {
 function killPlayer() {
   spawnHitParticles(player.x + player.w / 2, player.y + player.h / 2);
   state = STATE.DEAD;
+  stopMusic();
   const isNewHigh = score > highScore;
   if (isNewHigh) { highScore = score; localStorage.setItem('hoodRunnerHS', highScore); }
   setTimeout(() => showGameOver(isNewHigh), 600);
@@ -701,16 +946,44 @@ function drawPlayer() {
   ctx.fillStyle = '#cc0000';
   ctx.fillRect(-13, -56, 26, 4);
 
-  // chains (if collected any)
-  if (p.bling > 0) {
-    ctx.strokeStyle = '#ffd700';
+  // chains on neck (only shown when collected)
+  if (p.chainsWorn > 0) {
     ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 8;
-    ctx.lineWidth = 2.5;
-    for (let i = 0; i < Math.min(p.bling, 3); i++) {
-      ctx.beginPath();
-      ctx.arc(0, -44 - i * 4, 9 + i * 2, 0, Math.PI * 2);
-      ctx.stroke();
+    ctx.shadowBlur = 6 + p.chainsWorn * 2;
+    for (let i = 0; i < p.chainsWorn; i++) {
+      const chainRadius = 8 + i * 3;
+      const chainY = -44 - i * 3;
+      // Chain links effect
+      const segments = 12 + i * 2;
+      ctx.lineWidth = 2;
+      for (let s = 0; s < segments; s++) {
+        const a1 = (s / segments) * Math.PI * 2;
+        const a2 = ((s + 0.6) / segments) * Math.PI * 2;
+        const gold = i % 2 === 0 ? '#ffd700' : '#ffec80';
+        ctx.strokeStyle = gold;
+        ctx.beginPath();
+        ctx.arc(0, chainY, chainRadius, a1, a2);
+        ctx.stroke();
+      }
+      // Pendant on the first chain
+      if (i === 0) {
+        ctx.fillStyle = '#ffd700';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(0, chainY + chainRadius - 1);
+        ctx.lineTo(4, chainY + chainRadius + 7);
+        ctx.lineTo(0, chainY + chainRadius + 5);
+        ctx.lineTo(-4, chainY + chainRadius + 7);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Dollar sign pendant on 3rd chain
+      if (i === 2) {
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 7px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('$', 0, chainY + chainRadius + 7);
+      }
     }
     ctx.shadowBlur = 0;
   }
@@ -774,8 +1047,113 @@ function drawParticles() {
   }
 }
 
+function drawSwat(swat) {
+  const x = swat.x, y = swat.y, w = swat.w, h = swat.h;
+  const walkOffset = [0, -2, 0, 2][swat.frame];
+  const count = swat.officerCount || 3;
+  const spacing = w / count;
+
+  for (let i = 0; i < count; i++) {
+    const ox = x + i * spacing + spacing / 2;
+    const oy = y + h + walkOffset;
+    ctx.save();
+    ctx.translate(ox, oy);
+
+    // boots (black tactical)
+    ctx.fillStyle = '#111';
+    ctx.fillRect(-12, -8, 11, 9);
+    ctx.fillRect(1, -8, 11, 9);
+
+    // legs (black tactical pants)
+    const legSwing = Math.sin((swat.frame + i) * Math.PI / 2) * 3;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(-11, -28 + legSwing, 10, 20);
+    ctx.fillRect(1, -28 - legSwing, 10, 20);
+
+    // belt with gear
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-12, -30, 24, 4);
+    ctx.fillStyle = '#555';
+    ctx.fillRect(-8, -31, 4, 4);
+    ctx.fillRect(4, -31, 4, 4);
+
+    // body (dark navy/black tactical vest)
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.roundRect(-12, -54, 24, 26, 3);
+    ctx.fill();
+    // Vest overlay
+    ctx.fillStyle = '#252540';
+    ctx.fillRect(-10, -52, 20, 10);
+
+    // SWAT text on chest
+    ctx.fillStyle = '#ccc';
+    ctx.font = 'bold 6px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('SWAT', 0, -39);
+
+    // arms
+    const armSwing = Math.sin((swat.frame + i) * Math.PI / 2) * 4;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(-18, -52 + armSwing, 7, 16);
+    ctx.fillRect(11, -52 - armSwing, 7, 16);
+
+    // gloved hands
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(-14, -36 + armSwing, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(14, -36 - armSwing, 4, 0, Math.PI * 2); ctx.fill();
+
+    // neck
+    ctx.fillStyle = '#f5cba7';
+    ctx.fillRect(-4, -58, 8, 6);
+
+    // head
+    ctx.beginPath();
+    ctx.arc(0, -65, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    // helmet (dark tactical)
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(0, -68, 14, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(-14, -70, 28, 6);
+    // Visor
+    ctx.fillStyle = 'rgba(100,150,255,0.35)';
+    ctx.fillRect(-10, -66, 20, 5);
+
+    // eyes behind visor
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(-4, -65, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(4, -65, 1.5, 0, Math.PI * 2); ctx.fill();
+
+    // stern mouth
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-3, -59);
+    ctx.lineTo(3, -59);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // Red/blue flash on top (police light effect)
+  ctx.save();
+  const flash = Math.sin(frameCount * 0.3) > 0;
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = flash ? '#ff0000' : '#0044ff';
+  ctx.beginPath();
+  ctx.arc(x + w / 2, y - 5, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawObstacles() {
-  for (const o of obstacles) drawCop(o);
+  for (const o of obstacles) {
+    if (o.type === 'swat') drawSwat(o);
+    else drawCop(o);
+  }
 }
 
 function drawDeathScreen() {
