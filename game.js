@@ -1704,65 +1704,116 @@ function drawPlayer() {
   ctx.fillStyle = '#cc0000';
   ctx.fillRect(-13, -56, 26, 4);
 
-  // chains on neck (unlimited stacking!)
+  // chains on neck (unlimited stacking - hang down off screen!)
   if (p.chainsWorn > 0) {
-    const chainColors = ['#ffd700', '#ffec80', '#daa520', '#fff176', '#e6be00', '#ffb300', '#ffc107', '#ffab00'];
     const numChains = p.chainsWorn;
-    for (let i = numChains - 1; i >= 0; i--) {
-      const radius = 6 + i * 1.5;
-      const cy = -52 + i * 0.8;
+    const goldColors = ['#ffd700', '#ffec80', '#daa520', '#fff176', '#e6be00', '#ffb300', '#ffc107', '#ffab00'];
+    const diamondColors = ['#88ffff', '#ffffff', '#ff88ff', '#88ff88', '#ffff88'];
+
+    // Each chain hangs progressively lower
+    // Spacing: each chain adds 3px of hang distance
+    const baseY = -52; // neck position
+    const chainSpacing = 3; // vertical spacing between chains
+
+    for (let i = 0; i < numChains; i++) {
+      const hangDist = baseY + i * chainSpacing;
+      const radius = 6 + i * chainSpacing * 0.5;
+      const isDiamond = ((i + 1) % 10 === 0); // every 10th chain has diamonds
+
       ctx.save();
-      ctx.shadowColor = '#ffd700';
-      ctx.shadowBlur = Math.min(4 + numChains, 20);
-      ctx.strokeStyle = chainColors[i % chainColors.length];
-      ctx.lineWidth = 2.5;
+      if (isDiamond) {
+        // Diamond chain - sparkly white/cyan with glow
+        ctx.shadowColor = '#88ffff';
+        ctx.shadowBlur = 8;
+        ctx.strokeStyle = '#cceeff';
+        ctx.lineWidth = 3;
+      } else {
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = Math.min(3 + numChains * 0.2, 15);
+        ctx.strokeStyle = goldColors[i % goldColors.length];
+        ctx.lineWidth = 2.5;
+      }
+
+      // Draw the chain arc
       ctx.beginPath();
-      ctx.arc(0, cy, radius, 0.15, Math.PI - 0.15);
+      ctx.arc(0, hangDist, radius, 0.15, Math.PI - 0.15);
       ctx.stroke();
-      // Highlight shimmer
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+
+      // Shimmer highlight
+      ctx.strokeStyle = isDiamond ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(0, cy, radius - 0.5, 0.4, Math.PI - 0.7);
+      ctx.arc(0, hangDist, radius - 0.5, 0.3, Math.PI * 0.6);
       ctx.stroke();
-      ctx.restore();
-    }
-    // Pendant on outermost chain
-    const lastIdx = numChains - 1;
-    const pendantR = 6 + lastIdx * 1.5;
-    const pendantCy = -52 + lastIdx * 0.8;
-    const px = 0;
-    const py = pendantCy + pendantR;
-    ctx.save();
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = '#ffd700';
-    ctx.beginPath();
-    ctx.moveTo(px, py - 2);
-    ctx.lineTo(px + 4, py + 3);
-    ctx.lineTo(px, py + 7);
-    ctx.lineTo(px - 4, py + 3);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(px - 1, py + 1, 1, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
 
-    // Chain count badge if more than 5
-    if (numChains > 5) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.beginPath();
-      ctx.arc(14, -52, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffd700';
-      ctx.font = 'bold 8px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('x' + numChains, 14, -49);
+      // Diamond chain gets gems along the arc
+      if (isDiamond) {
+        const gemCount = Math.min(5, 3 + Math.floor(i / 30));
+        for (let g = 0; g < gemCount; g++) {
+          const angle = 0.4 + g * (Math.PI - 0.8) / (gemCount - 1 || 1);
+          const gx = Math.cos(angle) * radius;
+          const gy = hangDist + Math.sin(angle) * radius;
+          // Sparkle
+          const sparkle = Math.sin(frameCount * 0.15 + g * 1.5) * 0.4 + 0.6;
+          ctx.fillStyle = diamondColors[g % diamondColors.length];
+          ctx.globalAlpha = sparkle;
+          ctx.beginPath();
+          // Diamond shape
+          ctx.moveTo(gx, gy - 2.5);
+          ctx.lineTo(gx + 2, gy);
+          ctx.lineTo(gx, gy + 2.5);
+          ctx.lineTo(gx - 2, gy);
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
       ctx.restore();
+
+      // Pendant on every 5th chain
+      if ((i + 1) % 5 === 0) {
+        const py = hangDist + radius;
+        ctx.save();
+        if (isDiamond) {
+          ctx.shadowColor = '#88ffff';
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = '#aaeeff';
+        } else {
+          ctx.shadowColor = '#ffd700';
+          ctx.shadowBlur = 6;
+          ctx.fillStyle = '#ffd700';
+        }
+        // Diamond pendant
+        ctx.beginPath();
+        ctx.moveTo(0, py - 1);
+        ctx.lineTo(3, py + 3);
+        ctx.lineTo(0, py + 6);
+        ctx.lineTo(-3, py + 3);
+        ctx.closePath();
+        ctx.fill();
+        // Sparkle dot
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(-0.5, py + 2, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
+
+    // Chain count badge (always show)
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    const badgeX = 18;
+    const badgeY = -56;
+    ctx.beginPath();
+    ctx.roundRect(badgeX - 14, badgeY - 8, 28, 16, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 9px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('x' + numChains, badgeX, badgeY + 3);
+    ctx.restore();
   }
 
   // arms
@@ -2346,8 +2397,8 @@ function drawObstacles() {
 function drawWeaponHUD() {
   if (state !== STATE.PLAYING || player.weaponTier < 1) return;
   const w = canvas.width;
-  const hudX = w - 52;
-  const hudY = 42;
+  const hudX = w - 32;
+  const hudY = 72; // below the score bar
 
   ctx.save();
   // Bat cooldown ring
@@ -2358,14 +2409,14 @@ function drawWeaponHUD() {
     // Background circle
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
-    ctx.arc(hudX, hudY, 18, 0, Math.PI * 2);
+    ctx.arc(hudX, hudY, 16, 0, Math.PI * 2);
     ctx.fill();
 
     // Cooldown arc
     ctx.strokeStyle = ready ? '#00e676' : '#ff4444';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(hudX, hudY, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+    ctx.arc(hudX, hudY, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
     ctx.stroke();
 
     // Bat icon inside
@@ -2374,11 +2425,11 @@ function drawWeaponHUD() {
     ctx.translate(hudX, hudY);
     ctx.rotate(-0.4);
     ctx.beginPath();
-    ctx.roundRect(-2, -10, 4, 16, 2);
+    ctx.roundRect(-2, -8, 4, 13, 2);
     ctx.fill();
     ctx.fillStyle = ready ? '#8B4513' : '#555';
     ctx.beginPath();
-    ctx.roundRect(-3, -14, 6, 5, 2);
+    ctx.roundRect(-3, -11, 6, 4, 2);
     ctx.fill();
     ctx.restore();
 
@@ -2387,10 +2438,10 @@ function drawWeaponHUD() {
     ctx.font = 'bold 7px Arial';
     ctx.textAlign = 'center';
     if (ready) {
-      ctx.fillText('READY', hudX, hudY + 28);
+      ctx.fillText('READY', hudX, hudY + 24);
     } else {
       const secsLeft = Math.ceil(player.batCooldown / 60);
-      ctx.fillText(secsLeft + 's', hudX, hudY + 28);
+      ctx.fillText(secsLeft + 's', hudX, hudY + 24);
     }
   }
 
@@ -2398,12 +2449,43 @@ function drawWeaponHUD() {
   if (player.hasShield) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
-    ctx.arc(hudX - 42, hudY, 12, 0, Math.PI * 2);
+    ctx.arc(hudX - 38, hudY, 12, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ff2222';
     ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('🚗', hudX - 42, hudY + 4);
+    ctx.fillText('🚗', hudX - 38, hudY + 4);
+  }
+
+  // Gun indicator (show next shot timer for gun tiers)
+  if (player.weaponTier >= 2) {
+    const gunY = hudY + 42;
+    const fireRate = player.weaponTier === 2 ? 900 : player.weaponTier === 3 ? 600 : 300;
+    const gunPct = 1 - (player.gunTimer / fireRate);
+    const gunReady = player.gunTimer <= 60;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.arc(hudX, gunY, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = gunReady ? '#ffaa00' : '#888';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(hudX, gunY, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * gunPct);
+    ctx.stroke();
+
+    // Gun icon
+    ctx.fillStyle = gunReady ? '#ddd' : '#888';
+    ctx.fillRect(hudX - 5, gunY - 2, 10, 3);
+    ctx.fillRect(hudX - 1, gunY + 1, 3, 5);
+
+    // Label
+    const gunNames = ['', '', 'GUN', 'GUN+', 'UZI'];
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 6px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(gunNames[player.weaponTier], hudX, gunY + 22);
   }
 
   ctx.restore();
