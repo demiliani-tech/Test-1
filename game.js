@@ -472,55 +472,59 @@ function playBark() {
   if (!audioCtx) return;
   try {
     const t = audioCtx.currentTime;
+    const dur = 0.18;
 
-    // Sharp attack "woof" - high pitch snap down (like a real bark)
-    const bark = audioCtx.createOscillator();
-    const barkGain = audioCtx.createGain();
-    bark.type = 'square';
-    bark.frequency.setValueAtTime(600, t);
-    bark.frequency.exponentialRampToValueAtTime(250, t + 0.04);
-    bark.frequency.setValueAtTime(250, t + 0.04);
-    bark.frequency.exponentialRampToValueAtTime(180, t + 0.12);
-    barkGain.gain.setValueAtTime(0.6, t);
-    barkGain.gain.setValueAtTime(0.4, t + 0.04);
-    barkGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
-    bark.connect(barkGain);
-    barkGain.connect(audioCtx.destination);
-    bark.start(t);
-    bark.stop(t + 0.15);
-
-    // Breathy noise layer for realism
-    const bufSize = Math.floor(audioCtx.sampleRate * 0.12);
-    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    // Generate bark as a shaped noise buffer (sounds most like a real dog)
+    const sampleRate = audioCtx.sampleRate;
+    const bufLen = Math.floor(sampleRate * dur);
+    const buf = audioCtx.createBuffer(1, bufLen, sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1);
-    const noise = audioCtx.createBufferSource();
-    noise.buffer = buf;
-    const ng = audioCtx.createGain();
-    ng.gain.setValueAtTime(0.25, t);
-    ng.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
-    const filt = audioCtx.createBiquadFilter();
-    filt.type = 'bandpass';
-    filt.frequency.value = 800;
-    filt.Q.value = 1.5;
-    noise.connect(filt);
-    filt.connect(ng);
-    ng.connect(audioCtx.destination);
-    noise.start(t);
-    noise.stop(t + 0.12);
 
-    // Sub thump for the "woof" body
-    const sub = audioCtx.createOscillator();
-    const subGain = audioCtx.createGain();
-    sub.type = 'sine';
-    sub.frequency.setValueAtTime(150, t);
-    sub.frequency.exponentialRampToValueAtTime(80, t + 0.08);
-    subGain.gain.setValueAtTime(0.35, t);
-    subGain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
-    sub.connect(subGain);
-    subGain.connect(audioCtx.destination);
-    sub.start(t);
-    sub.stop(t + 0.1);
+    // Build the bark waveform sample by sample
+    for (let i = 0; i < bufLen; i++) {
+      const time = i / sampleRate;
+      const env = time < 0.01 ? time / 0.01                // sharp attack
+                : time < 0.06 ? 1.0                         // sustain
+                : Math.exp(-(time - 0.06) * 12);            // fast decay
+
+      // Fundamental growl (drops pitch like a real bark)
+      const freq = 420 - time * 1200;
+      const fundamental = Math.sin(2 * Math.PI * freq * time) * 0.5;
+
+      // Second harmonic for roughness
+      const harmonic = Math.sin(2 * Math.PI * freq * 1.8 * time) * 0.25;
+
+      // Noise for breathy texture
+      const noise = (Math.random() * 2 - 1) * 0.35;
+
+      // Combine
+      data[i] = (fundamental + harmonic + noise) * env;
+    }
+
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+
+    // Formant filter to shape it like a dog's mouth
+    const formant1 = audioCtx.createBiquadFilter();
+    formant1.type = 'bandpass';
+    formant1.frequency.value = 600;
+    formant1.Q.value = 2;
+
+    const formant2 = audioCtx.createBiquadFilter();
+    formant2.type = 'peaking';
+    formant2.frequency.value = 1200;
+    formant2.gain.value = 6;
+    formant2.Q.value = 1;
+
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.7;
+
+    src.connect(formant1);
+    formant1.connect(formant2);
+    formant2.connect(gain);
+    gain.connect(audioCtx.destination);
+    src.start(t);
+    src.stop(t + dur);
   } catch (e) {}
 }
 
