@@ -110,8 +110,8 @@ const carBassPattern = [55, 55, 73.42, 65.41, 55, 82.41, 73.42, 55]; // deep sub
 const carMelody = { notes: [220, 261.63, 293.66, 0, 220, 246.94, 220, 0], durs: [1, 0.5, 0.5, 1, 1, 0.5, 1, 1.5] };
 
 function getMusicPhase() {
-  // Phase changes every ~150m for variety
-  return Math.floor(distance / 150);
+  // Phase changes every ~100m for variety
+  return Math.floor(distance / 100);
 }
 
 // Must be called synchronously inside a user gesture (tap/click/key)
@@ -316,7 +316,7 @@ function loopBeat(dest) {
       // Car mode: trap-style kicks always
       drumPatterns[3](dest, t);
     } else {
-      const patIdx = (phase + Math.floor(musicLoopCount / 2)) % drumPatterns.length;
+      const patIdx = (phase + musicLoopCount) % drumPatterns.length;
       drumPatterns[patIdx](dest, t);
     }
   } catch (e) {}
@@ -330,7 +330,7 @@ function loopBass(dest) {
     const t = audioCtx.currentTime + 0.1;
     const phase = getMusicPhase();
     const notes = player.hasShield ? carBassPattern
-      : bassPatterns[(phase + Math.floor(musicLoopCount / 3)) % bassPatterns.length];
+      : bassPatterns[(phase + musicLoopCount) % bassPatterns.length];
     for (let i = 0; i < notes.length; i++) {
       if (notes[i] === 0) continue; // rest
       const osc = audioCtx.createOscillator();
@@ -360,7 +360,7 @@ function loopMelody(dest) {
     const t = audioCtx.currentTime + 0.1;
     const phase = getMusicPhase();
     const mel = player.hasShield ? carMelody
-      : melodyPatterns[(phase + Math.floor(musicLoopCount / 2)) % melodyPatterns.length];
+      : melodyPatterns[(phase + musicLoopCount) % melodyPatterns.length];
     let offset = 0;
     for (let i = 0; i < mel.notes.length; i++) {
       if (mel.notes[i] > 0) {
@@ -404,7 +404,7 @@ function loopHiHat(dest) {
       // Car: rapid trap hi-hats
       hihatPatterns[3](dest, t);
     } else {
-      const patIdx = (phase + Math.floor(musicLoopCount / 2)) % hihatPatterns.length;
+      const patIdx = (phase + musicLoopCount) % hihatPatterns.length;
       hihatPatterns[patIdx](dest, t);
     }
   } catch (e) {}
@@ -887,37 +887,12 @@ function update() {
     }
   }
 
-  // Move bullets
+  // Move bullets (tracers only - hits are instant now)
   for (let i = bullets.length - 1; i >= 0; i--) {
     bullets[i].x += (bullets[i].vx || 12);
     bullets[i].y += (bullets[i].vy || 0);
-    if (bullets[i].x > canvas.width + 20 || bullets[i].y < -20 || bullets[i].y > canvas.height + 20) { bullets.splice(i, 1); continue; }
-    // Bullet-obstacle collision
-    for (let oi = obstacles.length - 1; oi >= 0; oi--) {
-      const o = obstacles[oi];
-      const b = bullets[i];
-      if (!b) break;
-      if (b.x + 8 > o.x && b.x < o.x + o.w && b.y + 4 > o.y && b.y < o.y + o.h) {
-        spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
-        bullets.splice(i, 1);
-        if (o.type === 'swat') {
-          // SWAT: 1 shot kills 1 officer
-          o.officerCount--;
-          // Shrink hitbox as officers die
-          const perOfficer = 30;
-          o.w = o.officerCount * perOfficer;
-          o.x += perOfficer; // front officer removed
-          if (o.officerCount <= 0) {
-            obstacles.splice(oi, 1);
-          }
-        } else {
-          obstacles.splice(oi, 1);
-        }
-        score += 200;
-        playHitSound();
-        updateScoreUI();
-        break;
-      }
+    if (bullets[i].x > canvas.width + 20 || bullets[i].y < -20 || bullets[i].y > canvas.height + 20) {
+      bullets.splice(i, 1);
     }
   }
 
@@ -1277,7 +1252,6 @@ function spawnBulletAt(target) {
   const bx = player.x + player.w + 5;
   const by = player.y + player.h / 2;
   const isUzi = player.weaponTier === 4;
-  // Aim bullet toward the target's center
   const targetCx = target.x + target.w / 2;
   const targetCy = target.y + target.h / 2;
   const dx = targetCx - bx;
@@ -1286,29 +1260,51 @@ function spawnBulletAt(target) {
   const bulletSpeed = 12;
   const bvx = (dx / dist) * bulletSpeed;
   const bvy = (dy / dist) * bulletSpeed;
-  const spread = isUzi ? 0.08 : 0.03;
 
-  bullets.push({ x: bx, y: by, vx: bvx, vy: bvy + (Math.random() - 0.5) * spread * bulletSpeed, w: isUzi ? 10 : 6, h: isUzi ? 3 : 2 });
+  // Guaranteed hit: damage the target immediately, bullet is just a visual tracer
+  function hitTarget(tgt) {
+    const oi = obstacles.indexOf(tgt);
+    if (oi === -1) return; // already dead
+    spawnHitParticles(tgt.x + tgt.w / 2, tgt.y + tgt.h / 2);
+    if (tgt.type === 'swat') {
+      tgt.officerCount--;
+      const perOfficer = 30;
+      tgt.w = tgt.officerCount * perOfficer;
+      tgt.x += perOfficer;
+      if (tgt.officerCount <= 0) obstacles.splice(oi, 1);
+    } else {
+      obstacles.splice(oi, 1);
+    }
+    score += 200;
+    playHitSound();
+    updateScoreUI();
+  }
+
+  // First shot: instant hit + visual tracer
+  hitTarget(target);
+  bullets.push({ x: bx, y: by, vx: bvx, vy: bvy, w: isUzi ? 10 : 6, h: isUzi ? 3 : 2, tracer: true });
   player.muzzleFlash = 8;
   playGunshot();
 
-  // Uzi fires 3 total shots (burst) - each aims fresh at target
+  // Uzi fires 3 total shots (burst) - each hits instantly
   if (isUzi) {
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
       const sx = player.x + player.w + 5, sy = player.y + player.h / 2;
+      hitTarget(target);
       const tdx = targetCx - sx, tdy = targetCy - sy;
       const td = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-      bullets.push({ x: sx, y: sy, vx: (tdx / td) * bulletSpeed, vy: (tdy / td) * bulletSpeed + (Math.random() - 0.5) * 1.5, w: 10, h: 3 });
+      bullets.push({ x: sx, y: sy, vx: (tdx / td) * bulletSpeed, vy: (tdy / td) * bulletSpeed + (Math.random() - 0.5) * 1.5, w: 10, h: 3, tracer: true });
       player.muzzleFlash = 6;
       playGunshot();
     }, 80);
     setTimeout(() => {
       if (state !== STATE.PLAYING) return;
       const sx = player.x + player.w + 5, sy = player.y + player.h / 2;
+      hitTarget(target);
       const tdx = targetCx - sx, tdy = targetCy - sy;
       const td = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-      bullets.push({ x: sx, y: sy, vx: (tdx / td) * bulletSpeed, vy: (tdy / td) * bulletSpeed + (Math.random() - 0.5) * 1.5, w: 10, h: 3 });
+      bullets.push({ x: sx, y: sy, vx: (tdx / td) * bulletSpeed, vy: (tdy / td) * bulletSpeed + (Math.random() - 0.5) * 1.5, w: 10, h: 3, tracer: true });
       player.muzzleFlash = 6;
       playGunshot();
     }, 160);
@@ -2320,8 +2316,8 @@ function drawCarShield(p, walkOffset) {
   const carX = p.x + p.w / 2;
   const carY = p.y + p.h;
 
-  // Scale car up so it's bigger than cops
-  const carScale = 1.7;
+  // Scale car up so it's way bigger than cops
+  const carScale = 2.3;
   const groundY = carY + 16; // bottom of wheels
   ctx.translate(carX, groundY);
   ctx.scale(carScale, carScale);
