@@ -395,6 +395,9 @@ function spawnThings() {
     } else if (r < 0.88 && frameCount > 400) {
       // Helicopter - rare aerial threat, appears after ~7 seconds
       spawnHelicopter(canvas.width + 20);
+    } else if (r < 0.93 && frameCount > 600) {
+      // K-9 unit - very rare, fast but short, appears after ~10 seconds
+      spawnK9(canvas.width + 20);
     } else {
       // cash row
       for (let i = 0; i < 4; i++) spawnCash(canvas.width + 20 + i * 32, gY - 55);
@@ -445,6 +448,71 @@ function spawnSwat(x) {
     frame: 0, frameTimer: 0,
     officerCount: 3,
   });
+}
+
+function spawnK9(x) {
+  const gY = GROUND_Y();
+  // Short but fast dog + handler
+  const h = 28, w = 44;
+  obstacles.push({
+    type: 'k9',
+    x, y: gY - h, w, h,
+    speed: 2.5 + Math.random() * 1,
+    frame: 0, frameTimer: 0,
+    barked: false,
+  });
+  // Play bark warning sound
+  playBark();
+}
+
+function playBark() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    // Bark 1
+    const osc1 = audioCtx.createOscillator();
+    const g1 = audioCtx.createGain();
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(300, t);
+    osc1.frequency.exponentialRampToValueAtTime(150, t + 0.08);
+    g1.gain.setValueAtTime(0.4, t);
+    g1.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+    osc1.connect(g1);
+    g1.connect(audioCtx.destination);
+    osc1.start(t);
+    osc1.stop(t + 0.1);
+    // Bark 2 (slightly delayed)
+    const osc2 = audioCtx.createOscillator();
+    const g2 = audioCtx.createGain();
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(350, t + 0.15);
+    osc2.frequency.exponentialRampToValueAtTime(180, t + 0.25);
+    g2.gain.setValueAtTime(0.5, t + 0.15);
+    g2.gain.exponentialRampToValueAtTime(0.01, t + 0.27);
+    osc2.connect(g2);
+    g2.connect(audioCtx.destination);
+    osc2.start(t + 0.15);
+    osc2.stop(t + 0.27);
+    // Noise burst for growl texture
+    const bufSize = Math.floor(audioCtx.sampleRate * 0.15);
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.2, t + 0.12);
+    ng.gain.exponentialRampToValueAtTime(0.01, t + 0.27);
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 400;
+    filt.Q.value = 3;
+    noise.connect(filt);
+    filt.connect(ng);
+    ng.connect(audioCtx.destination);
+    noise.start(t + 0.12);
+    noise.stop(t + 0.27);
+  } catch (e) {}
 }
 
 function spawnHelicopter(x) {
@@ -583,10 +651,14 @@ function update() {
   // obstacle animations
   for (const o of obstacles) {
     o.frameTimer++;
-    if (o.frameTimer > 8) { o.frame = (o.frame + 1) % 4; o.frameTimer = 0; }
+    const animSpeed = o.type === 'k9' ? 4 : 8;
+    if (o.frameTimer > animSpeed) { o.frame = (o.frame + 1) % 4; o.frameTimer = 0; }
     if (o.type === 'helicopter') {
       o.bladeAngle = (o.bladeAngle || 0) + 0.5;
-      o.x -= o.speed; // helicopter moves faster on its own
+      o.x -= o.speed;
+    }
+    if (o.type === 'k9') {
+      o.x -= o.speed; // K-9 runs extra fast
     }
   }
 
@@ -611,6 +683,8 @@ function update() {
       let ob;
       if (o.type === 'helicopter') {
         ob = { x: o.x + 8, y: o.y + 6, w: o.w - 16, h: o.h - 8 };
+      } else if (o.type === 'k9') {
+        ob = { x: o.x + 4, y: o.y + 4, w: o.w - 8, h: o.h - 6 };
       } else {
         const shrinkX = o.type === 'swat' ? 4 : 6;
         ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
@@ -1307,10 +1381,111 @@ function drawHelicopter(heli) {
   ctx.restore();
 }
 
+function drawK9(k9) {
+  const x = k9.x, y = k9.y, w = k9.w, h = k9.h;
+  const runOffset = Math.sin(k9.frame * Math.PI / 2) * 3;
+
+  ctx.save();
+  ctx.translate(x + w / 2, y + h);
+
+  // Legs (running fast)
+  const legF = Math.sin(k9.frame * Math.PI / 2);
+  const frontLeg = legF * 6;
+  const backLeg = -legF * 6;
+  ctx.fillStyle = '#4a3728';
+  // back legs
+  ctx.fillRect(-16, -6 + backLeg, 5, 10);
+  ctx.fillRect(-10, -6 - backLeg, 5, 10);
+  // front legs
+  ctx.fillRect(8, -6 + frontLeg, 5, 10);
+  ctx.fillRect(14, -6 - frontLeg, 5, 10);
+
+  // Body
+  ctx.fillStyle = '#5c3d2e';
+  ctx.beginPath();
+  ctx.ellipse(0, -12, 18, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Dark saddle marking
+  ctx.fillStyle = '#3a2518';
+  ctx.beginPath();
+  ctx.ellipse(-2, -14, 12, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tail (wagging)
+  const tailWag = Math.sin(frameCount * 0.4) * 15;
+  ctx.save();
+  ctx.translate(-18, -16);
+  ctx.rotate((-30 + tailWag) * Math.PI / 180);
+  ctx.fillStyle = '#5c3d2e';
+  ctx.fillRect(-2, -10, 4, 10);
+  ctx.restore();
+
+  // Head
+  ctx.fillStyle = '#6b4430';
+  ctx.beginPath();
+  ctx.ellipse(18, -16, 8, 7, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  // Snout
+  ctx.fillStyle = '#7a5240';
+  ctx.beginPath();
+  ctx.ellipse(25, -14, 6, 4, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  // Nose
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(30, -14, 2, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(20, -18, 2, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye shine
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(20.5, -18.5, 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ears
+  ctx.fillStyle = '#3a2518';
+  ctx.beginPath();
+  ctx.ellipse(14, -22, 4, 6, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mouth (open when barking - every other frame)
+  if (k9.frame % 2 === 0) {
+    ctx.fillStyle = '#c44';
+    ctx.beginPath();
+    ctx.ellipse(27, -12, 4, 2, 0, 0, Math.PI);
+    ctx.fill();
+  }
+
+  // K-9 vest
+  ctx.fillStyle = '#1565c0';
+  ctx.fillRect(-8, -18, 16, 8);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 5px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('K-9', 0, -12);
+
+  // Leash line (trailing behind)
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(-18, -12);
+  ctx.lineTo(-35, -8);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.restore();
+}
+
 function drawObstacles() {
   for (const o of obstacles) {
     if (o.type === 'swat') drawSwat(o);
     else if (o.type === 'helicopter') drawHelicopter(o);
+    else if (o.type === 'k9') drawK9(o);
     else drawCop(o);
   }
 }
