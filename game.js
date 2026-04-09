@@ -452,19 +452,20 @@ function spawnSwat(x) {
 
 function spawnK9(x) {
   const gY = GROUND_Y();
-  // Short but fast dog - spawn further out for reaction time
   const h = 28, w = 44;
-  obstacles.push({
-    type: 'k9',
-    x: x + 80, y: gY - h, w, h,
-    speed: 1.2 + Math.random() * 0.6,
-    frame: 0, frameTimer: 0,
-    barked: false,
-  });
-  // Play bark warning early so player has time to react
+  // Play both barks as early warning BEFORE the dog appears
   playBark();
-  // Second bark a moment later
-  setTimeout(() => { try { playBark(); } catch (e) {} }, 400);
+  setTimeout(() => { try { playBark(); } catch (e) {} }, 350);
+  // Delay the actual spawn so barks come first
+  setTimeout(() => {
+    if (state !== STATE.PLAYING) return;
+    obstacles.push({
+      type: 'k9',
+      x: x + 80, y: gY - h, w, h,
+      speed: 1.2 + Math.random() * 0.6,
+      frame: 0, frameTimer: 0,
+    });
+  }, 700);
 }
 
 function playBark() {
@@ -523,17 +524,56 @@ function playBark() {
   } catch (e) {}
 }
 
+function playHeliWarning() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    // Rotor chop sound - rapid pulsing low tone
+    for (let i = 0; i < 8; i++) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 80;
+      gain.gain.setValueAtTime(0.3, t + i * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + i * 0.07 + 0.04);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t + i * 0.07);
+      osc.stop(t + i * 0.07 + 0.05);
+    }
+    // Rising siren wail
+    const siren = audioCtx.createOscillator();
+    const sirenGain = audioCtx.createGain();
+    siren.type = 'sine';
+    siren.frequency.setValueAtTime(400, t + 0.1);
+    siren.frequency.linearRampToValueAtTime(800, t + 0.5);
+    siren.frequency.linearRampToValueAtTime(400, t + 0.8);
+    sirenGain.gain.setValueAtTime(0.15, t + 0.1);
+    sirenGain.gain.setValueAtTime(0.15, t + 0.6);
+    sirenGain.gain.exponentialRampToValueAtTime(0.01, t + 0.85);
+    siren.connect(sirenGain);
+    sirenGain.connect(audioCtx.destination);
+    siren.start(t + 0.1);
+    siren.stop(t + 0.85);
+  } catch (e) {}
+}
+
 function spawnHelicopter(x) {
   const gY = GROUND_Y();
-  // Flies at jump height - dangerous when airborne
   const h = 30, w = 70;
-  obstacles.push({
-    type: 'helicopter',
-    x, y: gY - 140 - Math.random() * 40, w, h,
-    speed: 1.5 + Math.random() * 0.8,
-    frame: 0, frameTimer: 0,
-    bladeAngle: 0,
-  });
+  // Play warning sound before helicopter appears
+  playHeliWarning();
+  // Delay spawn so player hears it coming
+  setTimeout(() => {
+    if (state !== STATE.PLAYING) return;
+    obstacles.push({
+      type: 'helicopter',
+      x, y: gY - 140 - Math.random() * 40, w, h,
+      speed: 1.5 + Math.random() * 0.8,
+      frame: 0, frameTimer: 0,
+      bladeAngle: 0,
+    });
+  }, 800);
 }
 
 // --- Particles ---
