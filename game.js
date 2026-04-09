@@ -531,7 +531,7 @@ function loopHiHat(dest) {
 }
 
 // --- Game state ---
-const STATE = { START: 0, PLAYING: 1, DEAD: 2, SHOP: 3 };
+const STATE = { START: 0, PLAYING: 1, DEAD: 2, SHOP: 3, BLOCK: 4 };
 let state = STATE.START;
 let score = 0, cashCollected = 0, chainsCollected = 0, distance = 0;
 let highScore = parseInt(localStorage.getItem('hoodRunnerHS') || '0');
@@ -544,6 +544,52 @@ let nextShopDistance = SHOP_INTERVAL;
 let chainsBought = 0;
 let shopSelection = -1; // currently highlighted item
 let bullets = []; // projectiles from guns
+
+// --- Block / Home system (persistent) ---
+let savedChains = parseInt(localStorage.getItem('hrSavedChains') || '0');
+let blockSelectedBuilding = -1; // which building is tapped for upgrade panel
+
+const BUILDINGS = {
+  trapHouse: {
+    name: 'TRAP HOUSE',
+    levels: [
+      { cost: 0, label: 'Empty', desc: 'No perks', effect: null },
+      { cost: 25, label: 'Lv 1', desc: 'Start with Bat', effect: { weaponTier: 1 } },
+      { cost: 100, label: 'Lv 2', desc: 'Start with Pistol', effect: { weaponTier: 2 } },
+      { cost: 300, label: 'Lv 3', desc: 'Start with Pistol+', effect: { weaponTier: 3 } },
+      { cost: 800, label: 'Lv 4', desc: 'Start with Uzi', effect: { weaponTier: 4 } },
+    ],
+  },
+  garage: {
+    name: 'GARAGE',
+    levels: [
+      { cost: 0, label: 'Empty', desc: 'No car', effect: null },
+      { cost: 50, label: 'Lv 1', desc: 'Start with Car', effect: { carHits: 1 } },
+      { cost: 200, label: 'Lv 2', desc: 'Car takes 2 hits', effect: { carHits: 2 } },
+      { cost: 500, label: 'Lv 3', desc: 'Car takes 3 hits', effect: { carHits: 3 } },
+    ],
+  },
+  clothing: {
+    name: 'CLOTHING',
+    levels: [
+      { cost: 0, label: 'Default', desc: 'Basic fit', effect: null },
+      { cost: 20, label: 'Gold', desc: 'Gold outfit', effect: { shirt: '#ffd700', pants: '#b8860b', sneakers: '#ffd700' } },
+      { cost: 75, label: 'Diamond', desc: 'Ice drip', effect: { shirt: '#b0e0e6', pants: '#4682b4', sneakers: '#e0ffff' } },
+      { cost: 250, label: 'Fire', desc: 'Flame fit', effect: { shirt: '#ff4500', pants: '#8b0000', sneakers: '#ff6347' } },
+      { cost: 600, label: 'Shadow', desc: 'All black everything', effect: { shirt: '#1a1a1a', pants: '#0a0a0a', sneakers: '#2a2a2a' } },
+    ],
+  },
+};
+
+let buildingLevels = JSON.parse(localStorage.getItem('hrBuildingLevels') || '{"trapHouse":0,"garage":0,"clothing":0}');
+
+function saveBlockData() {
+  localStorage.setItem('hrSavedChains', savedChains);
+  localStorage.setItem('hrBuildingLevels', JSON.stringify(buildingLevels));
+}
+
+// Car hit points (for multi-hit car from garage upgrades)
+let carHitsLeft = 0;
 
 // --- Player ---
 const player = {
@@ -579,10 +625,23 @@ const GROUND_Y = () => canvas.height - 90;
 let jumpPressed = false;
 let jumpHeld = false;
 
+function goToBlock() {
+  state = STATE.BLOCK;
+  blockSelectedBuilding = -1;
+  showScreen(null);
+  document.getElementById('ui-overlay').style.display = 'none';
+  document.getElementById('mobile-controls').style.display = 'none';
+  stopMusic();
+  stopEngineSound();
+  if (animFrame) cancelAnimationFrame(animFrame);
+  blockLoop();
+}
+
 function doJump() {
-  if (state === STATE.START) { startGame(); return; }
+  if (state === STATE.START) { goToBlock(); return; }
   if (state === STATE.DEAD) return;
   if (state === STATE.SHOP) return; // handled by shop click
+  if (state === STATE.BLOCK) return; // handled by block click
   if (player.jumpsLeft > 0) {
     player.vy = player.jumpsLeft === 2 ? JUMP_FORCE : JUMP_FORCE * 0.82;
     player.jumpsLeft--;
@@ -603,10 +662,12 @@ document.addEventListener('keyup', e => {
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
+  if (state === STATE.BLOCK) { handleBlockClick(e.touches[0].clientX, e.touches[0].clientY); return; }
   if (state === STATE.SHOP) { handleShopClick(e.touches[0].clientX, e.touches[0].clientY); return; }
   doJump();
 }, { passive: false });
 canvas.addEventListener('mousedown', e => {
+  if (state === STATE.BLOCK) { handleBlockClick(e.clientX, e.clientY); return; }
   if (state === STATE.SHOP) { handleShopClick(e.clientX, e.clientY); return; }
   doJump();
 });
@@ -622,8 +683,8 @@ document.getElementById('jump-btn').addEventListener('touchend', e => {
   document.getElementById('jump-btn').classList.remove('pressed');
 }, { passive: false });
 
-document.getElementById('start-btn').addEventListener('click', startGame);
-document.getElementById('retry-btn').addEventListener('click', startGame);
+document.getElementById('start-btn').addEventListener('click', goToBlock);
+document.getElementById('retry-btn').addEventListener('click', goToBlock);
 
 // --- Screens ---
 function showScreen(id) {
@@ -636,6 +697,8 @@ function showScreen(id) {
 function startGame() {
   state = STATE.PLAYING;
   showScreen(null);
+  document.getElementById('ui-overlay').style.display = '';
+  document.getElementById('mobile-controls').style.display = '';
   score = 0; cashCollected = 0; chainsCollected = 0; distance = 0;
   speed = 4; frameCount = 0;
   particles = []; collectibles = []; obstacles = []; clouds = [];
@@ -649,11 +712,6 @@ function startGame() {
   player.frame = 0;
   player.bling = 0;
   player.chainsWorn = 0;
-  player.weaponTier = 0;
-  player.batCooldown = 0;
-  player.gunTimer = 0;
-  player.hasShield = false;
-  stopEngineSound();
   player.batSwing = 0;
   player.muzzleFlash = 0;
   player.carCrash = 0;
@@ -662,6 +720,41 @@ function startGame() {
   shopSelection = -1;
   bullets = [];
   platforms = [];
+
+  // Apply building bonuses from the block
+  // Trap House: starting weapon
+  const trapLvl = buildingLevels.trapHouse;
+  const trapEffect = BUILDINGS.trapHouse.levels[trapLvl].effect;
+  player.weaponTier = trapEffect ? trapEffect.weaponTier : 0;
+  player.batCooldown = 0;
+  player.gunTimer = player.weaponTier >= 2 ? 60 : 0;
+
+  // Garage: starting car shield
+  const garageLvl = buildingLevels.garage;
+  const garageEffect = BUILDINGS.garage.levels[garageLvl].effect;
+  if (garageEffect) {
+    player.hasShield = true;
+    carHitsLeft = garageEffect.carHits;
+    startEngineSound();
+  } else {
+    player.hasShield = false;
+    carHitsLeft = 0;
+    stopEngineSound();
+  }
+
+  // Clothing: outfit colors
+  const clothLvl = buildingLevels.clothing;
+  const clothEffect = BUILDINGS.clothing.levels[clothLvl].effect;
+  if (clothEffect) {
+    player.shirtColor = clothEffect.shirt;
+    player.pantsColor = clothEffect.pants;
+    player.sneakerColor = clothEffect.sneakers;
+  } else {
+    player.shirtColor = '#ff4444';
+    player.pantsColor = '#1a1a2e';
+    player.sneakerColor = '#fff';
+  }
+
   initClouds();
   spawnInitialPlatforms();
   updateScoreUI();
@@ -1126,28 +1219,39 @@ function update() {
           updateScoreUI();
           continue;
         }
-        // Car shield absorbs one hit then breaks
+        // Car shield absorbs hits (multi-hit from garage upgrades)
         if (player.hasShield) {
-          player.hasShield = false;
-          stopEngineSound();
-          player.carCrash = 25; // crash animation
+          carHitsLeft--;
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
-          // Big car-breaking particle explosion
-          for (let pi = 0; pi < 20; pi++) {
-            const colors = ['#ff2222', '#cc0000', '#ff6600', '#ffaa00', '#880000', '#444'];
-            particles.push({ x: player.x + player.w / 2 + (Math.random() - 0.5) * 30, y: player.y + player.h / 2,
-              vx: (Math.random() - 0.5) * 12, vy: -3 - Math.random() * 7,
-              alpha: 1, size: 4 + Math.random() * 8, color: colors[Math.floor(Math.random() * colors.length)], life: 50 });
-          }
-          // Glass shards
-          for (let pi = 0; pi < 8; pi++) {
-            particles.push({ x: player.x + player.w / 2, y: player.y + player.h * 0.3,
-              vx: (Math.random() - 0.5) * 10, vy: -2 - Math.random() * 4,
-              alpha: 0.8, size: 2 + Math.random() * 3, color: '#aaddff', life: 35 });
-          }
           obstacles.splice(oi, 1);
           player.invincible = 30;
-          playCarCrash();
+          if (carHitsLeft <= 0) {
+            // Car destroyed
+            player.hasShield = false;
+            stopEngineSound();
+            player.carCrash = 25;
+            // Big car-breaking particle explosion
+            for (let pi = 0; pi < 20; pi++) {
+              const colors = ['#ff2222', '#cc0000', '#ff6600', '#ffaa00', '#880000', '#444'];
+              particles.push({ x: player.x + player.w / 2 + (Math.random() - 0.5) * 30, y: player.y + player.h / 2,
+                vx: (Math.random() - 0.5) * 12, vy: -3 - Math.random() * 7,
+                alpha: 1, size: 4 + Math.random() * 8, color: colors[Math.floor(Math.random() * colors.length)], life: 50 });
+            }
+            for (let pi = 0; pi < 8; pi++) {
+              particles.push({ x: player.x + player.w / 2, y: player.y + player.h * 0.3,
+                vx: (Math.random() - 0.5) * 10, vy: -2 - Math.random() * 4,
+                alpha: 0.8, size: 2 + Math.random() * 3, color: '#aaddff', life: 35 });
+            }
+            playCarCrash();
+          } else {
+            // Car takes a hit but keeps going - small impact effect
+            for (let pi = 0; pi < 6; pi++) {
+              particles.push({ x: player.x + player.w / 2, y: player.y + player.h / 2,
+                vx: (Math.random() - 0.5) * 8, vy: -2 - Math.random() * 4,
+                alpha: 1, size: 3 + Math.random() * 4, color: '#ff6600', life: 25 });
+            }
+            playCarCrash();
+          }
           continue;
         }
         killPlayer();
@@ -1488,10 +1592,12 @@ function getShopLayout() {
   const totalW = cardW * 3 + gap * 2;
   const startX = (w - totalW) / 2;
   const startY = h * 0.28;
-  const btnW = Math.min(220, w * 0.55);
-  const btnH = 44;
-  const btnX = (w - btnW) / 2;
-  const btnY = startY + cardH + 50;
+  const btnW = Math.min(180, w * 0.44);
+  const btnH = 40;
+  const btnGap = Math.min(12, w * 0.03);
+  const totalBtnW = btnW * 2 + btnGap;
+  const btnStartX = (w - totalBtnW) / 2;
+  const btnY = startY + cardH + 40;
 
   const cards = [];
   for (let i = 0; i < 3; i++) {
@@ -1502,7 +1608,11 @@ function getShopLayout() {
       h: cardH,
     });
   }
-  return { cards, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
+  return {
+    cards,
+    btn: { x: btnStartX, y: btnY, w: btnW, h: btnH },
+    cashOutBtn: { x: btnStartX + btnW + btnGap, y: btnY, w: btnW, h: btnH },
+  };
 }
 
 function getShopCardData() {
@@ -1606,12 +1716,26 @@ function drawShop() {
   btnGrad.addColorStop(1, '#ff8c00');
   ctx.fillStyle = btnGrad;
   ctx.beginPath();
-  ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 22);
+  ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 20);
   ctx.fill();
   ctx.fillStyle = '#000';
-  ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial Black, Impact, sans-serif';
+  ctx.font = 'bold ' + Math.min(15, w * 0.038) + 'px Arial Black, Impact, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('KEEP RUNNING', btn.x + btn.w / 2, btn.y + btn.h / 2 + 6);
+  ctx.fillText('KEEP RUNNING', btn.x + btn.w / 2, btn.y + btn.h / 2 + 5);
+
+  // Cash Out button
+  const coBtn = layout.cashOutBtn;
+  const totalRunChains = chainsCollected + chainsBought;
+  const coGrad = ctx.createLinearGradient(coBtn.x, coBtn.y, coBtn.x + coBtn.w, coBtn.y);
+  coGrad.addColorStop(0, '#00e676');
+  coGrad.addColorStop(1, '#00c853');
+  ctx.fillStyle = coGrad;
+  ctx.beginPath();
+  ctx.roundRect(coBtn.x, coBtn.y, coBtn.w, coBtn.h, 20);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold ' + Math.min(15, w * 0.038) + 'px Arial Black, Impact, sans-serif';
+  ctx.fillText('CASH OUT (' + totalRunChains + ')', coBtn.x + coBtn.w / 2, coBtn.y + coBtn.h / 2 + 5);
 
   ctx.restore();
 }
@@ -1805,6 +1929,16 @@ function handleShopClick(clientX, clientY) {
     return;
   }
 
+  // Check CASH OUT button - save chains and go back to block
+  const coBtn = layout.cashOutBtn;
+  if (cx >= coBtn.x && cx <= coBtn.x + coBtn.w && cy >= coBtn.y && cy <= coBtn.y + coBtn.h) {
+    const totalRunChains = chainsCollected + chainsBought;
+    savedChains += totalRunChains;
+    saveBlockData();
+    goToBlock();
+    return;
+  }
+
   // Check item cards
   for (let i = 0; i < 3; i++) {
     const card = layout.cards[i];
@@ -1830,8 +1964,9 @@ function buyItem(index) {
     player.batCooldown = 0;
     player.gunTimer = 60; // first shot comes quickly
   } else if (index === 1) {
-    // Car - one hit shield
+    // Car - one hit shield (shop car is always 1 hit)
     player.hasShield = true;
+    carHitsLeft = Math.max(carHitsLeft, 1); // don't downgrade if garage gives more
     startEngineSound();
   } else {
     // Chain
@@ -1845,6 +1980,8 @@ function killPlayer() {
   spawnHitParticles(player.x + player.w / 2, player.y + player.h / 2);
   state = STATE.DEAD;
   stopMusic();
+  stopEngineSound();
+  // You lose all chains from this run when you die!
   const totalChains = chainsCollected + chainsBought;
   const isNewHigh = totalChains > highScore;
   if (isNewHigh) { highScore = totalChains; localStorage.setItem('hoodRunnerHS', highScore); }
@@ -1854,10 +1991,10 @@ function killPlayer() {
 function showGameOver(newHigh) {
   const totalChains = chainsCollected + chainsBought;
   document.getElementById('final-cash').textContent = '$' + cashCollected;
-  document.getElementById('final-chains').textContent = totalChains;
+  document.getElementById('final-chains').textContent = totalChains + ' LOST';
   document.getElementById('final-distance').textContent = distance + 'm';
-  document.getElementById('final-score').textContent = totalChains + ' chains';
-  document.getElementById('high-score-msg').textContent = newHigh ? '🏆 NEW CHAIN RECORD!' : 'Best: ' + highScore + ' chains';
+  document.getElementById('final-score').textContent = savedChains + ' chains saved';
+  document.getElementById('high-score-msg').textContent = newHigh ? '🏆 NEW RUN RECORD!' : 'Cash out at shops to keep chains!';
   document.getElementById('high-score-display').textContent = 'Best: ' + highScore + ' chains';
   showScreen('game-over-screen');
 }
@@ -3084,6 +3221,433 @@ function drawSpeedLines() {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// --- Block / Home Screen ---
+let blockFrameCount = 0;
+
+function getBlockLayout() {
+  const w = canvas.width, h = canvas.height;
+  const groundY = h - 70;
+  const streetY = groundY;
+
+  // 3 buildings side by side
+  const gap = Math.min(12, w * 0.025);
+  const bldgW = Math.min(110, (w - gap * 4) / 3);
+  const totalW = bldgW * 3 + gap * 2;
+  const startX = (w - totalW) / 2;
+
+  const keys = ['trapHouse', 'garage', 'clothing'];
+  const buildings = [];
+  for (let i = 0; i < 3; i++) {
+    const lvl = buildingLevels[keys[i]];
+    const maxLvl = BUILDINGS[keys[i]].levels.length - 1;
+    const heightScale = 0.4 + (lvl / maxLvl) * 0.4; // taller as upgraded
+    const bH = Math.floor(h * heightScale);
+    buildings.push({
+      x: startX + i * (bldgW + gap),
+      y: streetY - bH,
+      w: bldgW,
+      h: bH,
+      key: keys[i],
+    });
+  }
+
+  // START RUN button
+  const btnW = Math.min(200, w * 0.5);
+  const btnH = 46;
+  const btnX = (w - btnW) / 2;
+  const btnY = h - 52;
+
+  return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
+}
+
+function drawBlock() {
+  const w = canvas.width, h = canvas.height;
+  blockFrameCount++;
+
+  // Night sky gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.6);
+  skyGrad.addColorStop(0, '#0a0a1a');
+  skyGrad.addColorStop(1, '#1a1a3e');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Stars
+  ctx.fillStyle = '#fff';
+  for (let i = 0; i < 30; i++) {
+    const sx = (i * 137.5 + 50) % w;
+    const sy = (i * 89.3 + 20) % (h * 0.4);
+    const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(blockFrameCount * 0.02 + i));
+    ctx.globalAlpha = twinkle * 0.8;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 1 + (i % 3 === 0 ? 1 : 0), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  const layout = getBlockLayout();
+
+  // Street / ground
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(0, layout.streetY, w, h - layout.streetY);
+  // Sidewalk
+  ctx.fillStyle = '#555';
+  ctx.fillRect(0, layout.streetY - 8, w, 8);
+  // Road line
+  ctx.strokeStyle = '#ffd700';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([20, 15]);
+  ctx.beginPath();
+  ctx.moveTo(0, h - 30);
+  ctx.lineTo(w, h - 30);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw buildings
+  const buildingColors = [
+    ['#5c1a1a', '#8b2a2a', '#a33'], // Trap House - red/dark
+    ['#1a3a5c', '#2a5a8b', '#36a'], // Garage - blue
+    ['#3a1a5c', '#5a2a8b', '#a3a'], // Clothing - purple
+  ];
+
+  for (let i = 0; i < 3; i++) {
+    const b = layout.buildings[i];
+    const key = b.key;
+    const lvl = buildingLevels[key];
+    const maxLvl = BUILDINGS[key].levels.length - 1;
+    const cols = buildingColors[i];
+    const selected = blockSelectedBuilding === i;
+
+    // Building body
+    const bGrad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
+    bGrad.addColorStop(0, cols[0]);
+    bGrad.addColorStop(0.5, cols[1]);
+    bGrad.addColorStop(1, cols[0]);
+    ctx.fillStyle = bGrad;
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, [6, 6, 0, 0]);
+    ctx.fill();
+
+    // Selection glow
+    if (selected) {
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, [8, 8, 0, 0]);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Windows (lit based on level)
+    const windowRows = Math.floor(b.h / 28);
+    const windowCols = Math.floor(b.w / 24);
+    for (let row = 0; row < windowRows; row++) {
+      for (let col = 0; col < windowCols; col++) {
+        const wx = b.x + 10 + col * 24;
+        const wy = b.y + 14 + row * 28;
+        if (wy + 14 > layout.streetY - 4) continue;
+        const lit = (row + col) % 3 < lvl;
+        ctx.fillStyle = lit ? 'rgba(255,220,100,0.7)' : 'rgba(30,30,40,0.6)';
+        ctx.fillRect(wx, wy, 14, 14);
+        if (lit) {
+          ctx.fillStyle = 'rgba(255,255,200,0.3)';
+          ctx.fillRect(wx + 2, wy + 2, 5, 5);
+        }
+      }
+    }
+
+    // Door
+    ctx.fillStyle = '#222';
+    const doorW = Math.min(22, b.w * 0.25);
+    const doorH = 30;
+    ctx.fillRect(b.x + (b.w - doorW) / 2, layout.streetY - doorH, doorW, doorH);
+    ctx.fillStyle = cols[2];
+    ctx.fillRect(b.x + (b.w - doorW) / 2 + 2, layout.streetY - doorH + 2, doorW - 4, doorH - 2);
+
+    // Building name
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold ' + Math.min(11, b.w * 0.1) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(BUILDINGS[key].name, b.x + b.w / 2, b.y - 18);
+
+    // Level indicator
+    ctx.fillStyle = lvl >= maxLvl ? '#ffd700' : '#aaa';
+    ctx.font = Math.min(10, b.w * 0.09) + 'px Arial';
+    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 6);
+  }
+
+  // Player character standing on the block
+  const pX = w / 2 - 19;
+  const pY = layout.streetY - 56;
+  drawBlockPlayer(pX, pY);
+
+  // Saved chains display
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(24, w * 0.06) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#ffd700';
+  ctx.shadowBlur = 10;
+  ctx.fillText('YOUR BLOCK', w / 2, Math.min(36, h * 0.06));
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial';
+  ctx.fillText('Saved Chains: ' + savedChains, w / 2, Math.min(58, h * 0.1));
+
+  // Upgrade panel if building selected
+  if (blockSelectedBuilding >= 0) {
+    drawUpgradePanel(layout);
+  }
+
+  // START RUN button (only if no panel open)
+  if (blockSelectedBuilding < 0) {
+    const btn = layout.btn;
+    const btnGrad = ctx.createLinearGradient(btn.x, btn.y, btn.x + btn.w, btn.y);
+    btnGrad.addColorStop(0, '#00e676');
+    btnGrad.addColorStop(1, '#00c853');
+    ctx.fillStyle = btnGrad;
+    ctx.beginPath();
+    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 23);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('START RUN', btn.x + btn.w / 2, btn.y + btn.h / 2 + 7);
+  }
+}
+
+function drawBlockPlayer(px, py) {
+  // Simplified player standing idle on the block
+  const p = player;
+  ctx.save();
+  const cx = px + 19;
+  const by = py + 56;
+
+  // Apply clothing from building level
+  const clothLvl = buildingLevels.clothing;
+  const clothEffect = BUILDINGS.clothing.levels[clothLvl].effect;
+  const shirt = clothEffect ? clothEffect.shirt : p.shirtColor;
+  const pants = clothEffect ? clothEffect.pants : p.pantsColor;
+  const sneakers = clothEffect ? clothEffect.sneakers : p.sneakerColor;
+
+  // Sneakers
+  ctx.fillStyle = sneakers;
+  ctx.fillRect(cx - 12, by - 8, 10, 8);
+  ctx.fillRect(cx + 2, by - 8, 10, 8);
+  // Legs
+  ctx.fillStyle = pants;
+  ctx.fillRect(cx - 10, by - 28, 8, 20);
+  ctx.fillRect(cx + 2, by - 28, 8, 20);
+  // Torso
+  ctx.fillStyle = shirt;
+  ctx.beginPath();
+  ctx.roundRect(cx - 14, by - 48, 28, 22, 4);
+  ctx.fill();
+  // Arms
+  ctx.fillStyle = p.skinColor;
+  ctx.fillRect(cx - 18, by - 46, 6, 18);
+  ctx.fillRect(cx + 12, by - 46, 6, 18);
+  // Head
+  ctx.fillStyle = p.skinColor;
+  ctx.beginPath();
+  ctx.arc(cx, by - 54, 9, 0, Math.PI * 2);
+  ctx.fill();
+  // Cap
+  ctx.fillStyle = '#b71c1c';
+  ctx.beginPath();
+  ctx.ellipse(cx, by - 58, 11, 5, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.fillRect(cx - 2, by - 63, 13, 4);
+  // Eyes
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(cx - 3, by - 55, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + 3, by - 55, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Draw chains on block player
+  const totalChains = player.chainsWorn || 0;
+  if (totalChains > 0 || buildingLevels.trapHouse > 0) {
+    // Just show a small chain indicator
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(cx, by - 42, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawUpgradePanel(layout) {
+  const w = canvas.width, h = canvas.height;
+  const i = blockSelectedBuilding;
+  const b = layout.buildings[i];
+  const key = b.key;
+  const bData = BUILDINGS[key];
+  const lvl = buildingLevels[key];
+  const maxLvl = bData.levels.length - 1;
+  const isMaxed = lvl >= maxLvl;
+  const nextLvl = isMaxed ? null : bData.levels[lvl + 1];
+
+  // Panel background
+  const panelW = Math.min(260, w * 0.7);
+  const panelH = 160;
+  const panelX = (w - panelW) / 2;
+  const panelY = h * 0.12;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.9)';
+  ctx.beginPath();
+  ctx.roundRect(panelX, panelY, panelW, panelH, 14);
+  ctx.fill();
+  ctx.strokeStyle = '#ffd700';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(panelX, panelY, panelW, panelH, 14);
+  ctx.stroke();
+
+  // Building name
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(bData.name, w / 2, panelY + 28);
+
+  // Current level
+  ctx.fillStyle = '#aaa';
+  ctx.font = Math.min(13, w * 0.033) + 'px Arial';
+  ctx.fillText('Current: ' + bData.levels[lvl].desc, w / 2, panelY + 48);
+
+  if (isMaxed) {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold ' + Math.min(16, w * 0.04) + 'px Arial';
+    ctx.fillText('FULLY UPGRADED!', w / 2, panelY + 80);
+  } else {
+    // Next upgrade info
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold ' + Math.min(14, w * 0.035) + 'px Arial';
+    ctx.fillText('Next: ' + nextLvl.desc, w / 2, panelY + 72);
+
+    // Cost
+    const canAfford = savedChains >= nextLvl.cost;
+    ctx.fillStyle = canAfford ? '#00e676' : '#ff4444';
+    ctx.font = 'bold ' + Math.min(14, w * 0.035) + 'px Arial';
+    ctx.fillText('Cost: ' + nextLvl.cost + ' chains', w / 2, panelY + 92);
+
+    // Upgrade button
+    const ubW = Math.min(140, panelW * 0.6);
+    const ubH = 34;
+    const ubX = (w - ubW) / 2;
+    const ubY = panelY + 108;
+
+    ctx.fillStyle = canAfford ? '#00e676' : '#555';
+    ctx.beginPath();
+    ctx.roundRect(ubX, ubY, ubW, ubH, 17);
+    ctx.fill();
+    ctx.fillStyle = canAfford ? '#000' : '#888';
+    ctx.font = 'bold ' + Math.min(14, w * 0.035) + 'px Arial';
+    ctx.fillText('UPGRADE', w / 2, ubY + ubH / 2 + 5);
+
+    // Store button rect for click detection
+    layout.upgradeBtn = { x: ubX, y: ubY, w: ubW, h: ubH };
+  }
+
+  // Close X
+  ctx.fillStyle = '#888';
+  ctx.font = 'bold 18px Arial';
+  ctx.textAlign = 'right';
+  ctx.fillText('X', panelX + panelW - 10, panelY + 22);
+  layout.closeBtn = { x: panelX + panelW - 28, y: panelY + 4, w: 24, h: 24 };
+}
+
+function handleBlockClick(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const cx = (clientX - rect.left) * scaleX;
+  const cy = (clientY - rect.top) * scaleY;
+
+  const layout = getBlockLayout();
+
+  // If upgrade panel is open
+  if (blockSelectedBuilding >= 0) {
+    // Check close button
+    if (layout.closeBtn) {
+      // Recalculate panel to get buttons
+      drawUpgradePanelHitTest(layout);
+    }
+    const panelW = Math.min(260, canvas.width * 0.7);
+    const panelH = 160;
+    const panelX = (canvas.width - panelW) / 2;
+    const panelY = canvas.height * 0.12;
+
+    // Close X
+    const closeX = panelX + panelW - 28, closeY = panelY + 4;
+    if (cx >= closeX && cx <= closeX + 24 && cy >= closeY && cy <= closeY + 24) {
+      blockSelectedBuilding = -1;
+      return;
+    }
+
+    // Upgrade button
+    const key = layout.buildings[blockSelectedBuilding].key;
+    const bData = BUILDINGS[key];
+    const lvl = buildingLevels[key];
+    const maxLvl = bData.levels.length - 1;
+    if (lvl < maxLvl) {
+      const nextLvl = bData.levels[lvl + 1];
+      const ubW = Math.min(140, panelW * 0.6);
+      const ubH = 34;
+      const ubX = (canvas.width - ubW) / 2;
+      const ubY = panelY + 108;
+      if (cx >= ubX && cx <= ubX + ubW && cy >= ubY && cy <= ubY + ubH) {
+        if (savedChains >= nextLvl.cost) {
+          savedChains -= nextLvl.cost;
+          buildingLevels[key]++;
+          saveBlockData();
+          if (audioCtx) playBuySound();
+        } else {
+          if (audioCtx) playDenySound();
+        }
+        return;
+      }
+    }
+
+    // Click outside panel = close
+    if (cx < panelX || cx > panelX + panelW || cy < panelY || cy > panelY + panelH) {
+      blockSelectedBuilding = -1;
+    }
+    return;
+  }
+
+  // Check START RUN button
+  const btn = layout.btn;
+  if (cx >= btn.x && cx <= btn.x + btn.w && cy >= btn.y && cy <= btn.y + btn.h) {
+    startGame();
+    return;
+  }
+
+  // Check building clicks
+  for (let i = 0; i < 3; i++) {
+    const b = layout.buildings[i];
+    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+      blockSelectedBuilding = i;
+      return;
+    }
+  }
+}
+
+function drawUpgradePanelHitTest() {
+  // no-op, just used for consistency
+}
+
+function blockLoop() {
+  if (state !== STATE.BLOCK) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawBlock();
+  animFrame = requestAnimationFrame(blockLoop);
 }
 
 // --- Main loop ---
