@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Hood Runner</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui-overlay">
+      <div id="score-display">
+        <span id="cash-score">💵 $0</span>
+        <span id="chain-score">⛓️ x0</span>
+        <span id="distance-score">🏃 0m</span>
+      </div>
+    </div>
+    <div id="start-screen" class="screen">
+      <h1>HOOD RUNNER</h1>
+      <p class="subtitle">Collect cash & chains.<br>Jump over the boys in blue.</p>
+      <div id="high-score-display">Best: $0</div>
+      <button id="start-btn" class="btn">TAP TO PLAY</button>
+      <div class="controls-hint">
+        <span>TAP = Jump</span>
+        <span>HOLD = Double Jump</span>
+      </div>
+    </div>
+    <div id="game-over-screen" class="screen hidden">
+      <h1>BUSTED!</h1>
+      <div id="final-stats">
+        <div class="stat">💵 Cash: <span id="final-cash">$0</span></div>
+        <div class="stat">⛓️ Chains: <span id="final-chains">0</span></div>
+        <div class="stat">🏃 Distance: <span id="final-distance">0m</span></div>
+        <div class="stat total">Total: <span id="final-score">0</span> pts</div>
+      </div>
+      <div id="high-score-msg"></div>
+      <button id="retry-btn" class="btn">RUN AGAIN</button>
+    </div>
+    <div id="mobile-controls">
+      <div id="jump-btn" class="control-btn">JUMP</div>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
