@@ -812,22 +812,7 @@ function update() {
         ob = { x: o.x + shrinkX, y: o.y + 4, w: o.w - shrinkX * 2, h: o.h - 4 };
       }
       if (rectOverlap(pb, ob)) {
-        // Car shield absorbs one hit then breaks
-        if (player.hasShield) {
-          player.hasShield = false;
-          spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
-          // Extra car-breaking particles
-          for (let pi = 0; pi < 12; pi++) {
-            particles.push({ x: player.x + player.w / 2, y: player.y + player.h / 2,
-              vx: (Math.random() - 0.5) * 8, vy: -2 - Math.random() * 5,
-              alpha: 1, size: 4 + Math.random() * 6, color: '#4488ff', life: 40 });
-          }
-          obstacles.splice(oi, 1);
-          player.invincible = 30;
-          playHitSound();
-          continue;
-        }
-        // Bat hits cops and K-9 on contact (30s cooldown)
+        // Bat hits cops and K-9 on contact FIRST (30s cooldown)
         if (player.weaponTier >= 1 && player.batCooldown <= 0 && (o.type === 'cop' || o.type === 'k9')) {
           player.batCooldown = 1800; // 30 seconds at 60fps
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
@@ -835,6 +820,21 @@ function update() {
           score += 200;
           playHitSound();
           updateScoreUI();
+          continue;
+        }
+        // Car shield absorbs one hit then breaks
+        if (player.hasShield) {
+          player.hasShield = false;
+          spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
+          // Red car-breaking particles
+          for (let pi = 0; pi < 12; pi++) {
+            particles.push({ x: player.x + player.w / 2, y: player.y + player.h / 2,
+              vx: (Math.random() - 0.5) * 8, vy: -2 - Math.random() * 5,
+              alpha: 1, size: 4 + Math.random() * 6, color: Math.random() < 0.5 ? '#ff2222' : '#cc0000', life: 40 });
+          }
+          obstacles.splice(oi, 1);
+          player.invincible = 30;
+          playHitSound();
           continue;
         }
         killPlayer();
@@ -1227,27 +1227,61 @@ function drawWeaponIcon(cx, cy, size, active, tier) {
 function drawCarIcon(cx, cy, size, active) {
   ctx.save();
   ctx.translate(cx, cy);
-  // Car body
-  ctx.fillStyle = active ? '#4488ff' : '#555';
+  // Sleek sports car body
+  const c1 = active ? '#ff2222' : '#555';
+  const c2 = active ? '#cc0000' : '#444';
+  ctx.fillStyle = c1;
   ctx.beginPath();
-  ctx.roundRect(-size * 0.8, -size * 0.2, size * 1.6, size * 0.6, 5);
+  ctx.moveTo(-size * 0.9, size * 0.1);
+  ctx.lineTo(-size * 0.7, -size * 0.2);
+  ctx.lineTo(-size * 0.3, -size * 0.3);
+  ctx.lineTo(size * 0.5, -size * 0.3);
+  ctx.lineTo(size * 0.9, -size * 0.1);
+  ctx.lineTo(size * 1.0, size * 0.1);
+  ctx.closePath();
   ctx.fill();
-  // Roof
-  ctx.fillStyle = active ? '#3366cc' : '#444';
+  // Roof (low sporty)
+  ctx.fillStyle = c2;
   ctx.beginPath();
-  ctx.roundRect(-size * 0.5, -size * 0.6, size * 1.0, size * 0.45, 4);
+  ctx.moveTo(-size * 0.2, -size * 0.3);
+  ctx.lineTo(-size * 0.05, -size * 0.65);
+  ctx.lineTo(size * 0.35, -size * 0.65);
+  ctx.lineTo(size * 0.5, -size * 0.3);
+  ctx.closePath();
   ctx.fill();
   // Windshield
   ctx.fillStyle = active ? 'rgba(150,220,255,0.6)' : 'rgba(100,100,100,0.4)';
-  ctx.fillRect(size * 0.1, -size * 0.5, size * 0.3, size * 0.3);
+  ctx.beginPath();
+  ctx.moveTo(size * 0.2, -size * 0.3);
+  ctx.lineTo(size * 0.28, -size * 0.58);
+  ctx.lineTo(size * 0.35, -size * 0.58);
+  ctx.lineTo(size * 0.45, -size * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  // Headlight
+  if (active) {
+    ctx.fillStyle = '#ffff88';
+    ctx.beginPath();
+    ctx.arc(size * 0.95, 0, size * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
   // Wheels
   ctx.fillStyle = '#111';
   ctx.beginPath();
-  ctx.arc(-size * 0.45, size * 0.4, size * 0.2, 0, Math.PI * 2);
+  ctx.arc(-size * 0.45, size * 0.2, size * 0.18, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(size * 0.45, size * 0.4, size * 0.2, 0, Math.PI * 2);
+  ctx.arc(size * 0.55, size * 0.2, size * 0.18, 0, Math.PI * 2);
   ctx.fill();
+  // Rims
+  ctx.strokeStyle = '#999';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(-size * 0.45, size * 0.2, size * 0.1, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(size * 0.55, size * 0.2, size * 0.1, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1829,40 +1863,114 @@ function drawPlayer() {
 
   ctx.restore();
 
-  // Car shield visual - drawn outside the player transform
+  // Car shield visual - red sports car around player
   if (p.hasShield) {
     ctx.save();
-    ctx.globalAlpha = 0.7;
+    ctx.globalAlpha = 0.75;
     const carX = p.x + p.w / 2;
     const carY = p.y + p.h + walkOffset;
-    // Car body around player
-    ctx.fillStyle = '#4488ff';
+
+    // Shadow under car
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
-    ctx.roundRect(carX - 28, carY - 14, 56, 20, 6);
+    ctx.ellipse(carX, carY + 8, 30, 5, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Car roof
-    ctx.fillStyle = '#3366cc';
+
+    // Main body - sleek sports car shape
+    const bodyGrad = ctx.createLinearGradient(carX - 30, carY - 20, carX - 30, carY + 8);
+    bodyGrad.addColorStop(0, '#ff3333');
+    bodyGrad.addColorStop(0.4, '#cc0000');
+    bodyGrad.addColorStop(1, '#880000');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
-    ctx.roundRect(carX - 18, carY - 28, 36, 16, 4);
+    ctx.moveTo(carX - 30, carY + 4);
+    ctx.lineTo(carX - 28, carY - 6);
+    ctx.lineTo(carX - 18, carY - 10);
+    ctx.lineTo(carX + 20, carY - 10);
+    ctx.lineTo(carX + 32, carY - 4);
+    ctx.lineTo(carX + 34, carY + 4);
+    ctx.closePath();
     ctx.fill();
+
+    // Roof / windshield area (lower, sportier)
+    ctx.fillStyle = '#aa0000';
+    ctx.beginPath();
+    ctx.moveTo(carX - 12, carY - 10);
+    ctx.lineTo(carX - 6, carY - 22);
+    ctx.lineTo(carX + 14, carY - 22);
+    ctx.lineTo(carX + 20, carY - 10);
+    ctx.closePath();
+    ctx.fill();
+
     // Windshield
-    ctx.fillStyle = 'rgba(150,220,255,0.5)';
-    ctx.fillRect(carX + 4, carY - 26, 12, 12);
-    // Wheels
+    ctx.fillStyle = 'rgba(150,220,255,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(carX + 8, carY - 10);
+    ctx.lineTo(carX + 12, carY - 20);
+    ctx.lineTo(carX + 14, carY - 20);
+    ctx.lineTo(carX + 18, carY - 10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Rear window
+    ctx.fillStyle = 'rgba(150,220,255,0.4)';
+    ctx.beginPath();
+    ctx.moveTo(carX - 10, carY - 10);
+    ctx.lineTo(carX - 6, carY - 20);
+    ctx.lineTo(carX - 2, carY - 20);
+    ctx.lineTo(carX + 2, carY - 10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Hood highlight (shiny)
+    ctx.fillStyle = 'rgba(255,150,150,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(carX + 28, carY - 6, 8, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Headlights
+    ctx.fillStyle = '#ffff88';
+    ctx.shadowColor = '#ffff00';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.ellipse(carX + 33, carY - 2, 2, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Tail lights
+    ctx.fillStyle = '#ff0000';
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 5;
+    ctx.beginPath();
+    ctx.ellipse(carX - 29, carY - 2, 2, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Wheels with rims
     ctx.fillStyle = '#111';
     ctx.beginPath();
-    ctx.arc(carX - 16, carY + 6, 6, 0, Math.PI * 2);
+    ctx.arc(carX - 18, carY + 5, 6, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(carX + 16, carY + 6, 6, 0, Math.PI * 2);
+    ctx.arc(carX + 22, carY + 5, 6, 0, Math.PI * 2);
     ctx.fill();
-    // Energy glow
-    ctx.strokeStyle = '#66aaff';
+    // Chrome rims
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(carX - 18, carY + 5, 3.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(carX + 22, carY + 5, 3.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Subtle red glow around car
+    ctx.strokeStyle = 'rgba(255,50,50,0.5)';
     ctx.lineWidth = 2;
-    ctx.shadowColor = '#4488ff';
-    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#ff2222';
+    ctx.shadowBlur = 12;
     ctx.beginPath();
-    ctx.ellipse(carX, carY - 5, 32, 24, 0, 0, Math.PI * 2);
+    ctx.ellipse(carX + 2, carY - 5, 36, 22, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -2235,6 +2343,72 @@ function drawObstacles() {
   }
 }
 
+function drawWeaponHUD() {
+  if (state !== STATE.PLAYING || player.weaponTier < 1) return;
+  const w = canvas.width;
+  const hudX = w - 52;
+  const hudY = 42;
+
+  ctx.save();
+  // Bat cooldown ring
+  if (player.weaponTier >= 1) {
+    const ready = player.batCooldown <= 0;
+    const pct = ready ? 1 : 1 - (player.batCooldown / 1800);
+
+    // Background circle
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.arc(hudX, hudY, 18, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cooldown arc
+    ctx.strokeStyle = ready ? '#00e676' : '#ff4444';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(hudX, hudY, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+    ctx.stroke();
+
+    // Bat icon inside
+    ctx.fillStyle = ready ? '#A0522D' : '#666';
+    ctx.save();
+    ctx.translate(hudX, hudY);
+    ctx.rotate(-0.4);
+    ctx.beginPath();
+    ctx.roundRect(-2, -10, 4, 16, 2);
+    ctx.fill();
+    ctx.fillStyle = ready ? '#8B4513' : '#555';
+    ctx.beginPath();
+    ctx.roundRect(-3, -14, 6, 5, 2);
+    ctx.fill();
+    ctx.restore();
+
+    // "READY" or seconds left
+    ctx.fillStyle = ready ? '#00e676' : '#ff8888';
+    ctx.font = 'bold 7px Arial';
+    ctx.textAlign = 'center';
+    if (ready) {
+      ctx.fillText('READY', hudX, hudY + 28);
+    } else {
+      const secsLeft = Math.ceil(player.batCooldown / 60);
+      ctx.fillText(secsLeft + 's', hudX, hudY + 28);
+    }
+  }
+
+  // Shield indicator
+  if (player.hasShield) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.arc(hudX - 42, hudY, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff2222';
+    ctx.font = 'bold 10px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🚗', hudX - 42, hudY + 4);
+  }
+
+  ctx.restore();
+}
+
 function drawDeathScreen() {
   if (state !== STATE.DEAD) return;
   ctx.save();
@@ -2273,6 +2447,7 @@ function gameLoop() {
   drawBullets();
   drawParticles();
   drawSpeedLines();
+  drawWeaponHUD();
   drawDeathScreen();
   drawShop();
   animFrame = requestAnimationFrame(gameLoop);
