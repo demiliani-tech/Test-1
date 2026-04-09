@@ -16,28 +16,121 @@ window.addEventListener('resize', resizeCanvas);
 let audioCtx = null;
 let musicPlaying = false;
 let musicNodes = {};
+let musicPhase = 0; // evolves as distance increases
+let musicLoopCount = 0; // counts 8-beat loops for variation
+let inCarMusic = false; // true when car shield music is active
+let engineNode = null; // engine sound oscillator/gain
+
 const BPM = 95;
 const BEAT = 60 / BPM;
+
+// Multiple bass patterns that rotate
+const bassPatterns = [
+  [82.41, 98, 82.41, 73.42, 82.41, 110, 98, 82.41],       // original E minor
+  [82.41, 82.41, 110, 98, 73.42, 82.41, 98, 73.42],        // darker variation
+  [110, 98, 82.41, 110, 73.42, 98, 82.41, 73.42],          // ascending energy
+  [65.41, 73.42, 82.41, 98, 110, 98, 82.41, 65.41],        // deep rumble climb
+  [82.41, 0, 98, 82.41, 0, 73.42, 110, 98],                // syncopated gaps
+];
+
+// Multiple melody patterns
+const melodyPatterns = [
+  { notes: [329.63, 392, 440, 392, 329.63, 293.66, 329.63, 0], durs: [1, 0.5, 0.5, 1, 0.5, 0.5, 1.5, 1.5] },
+  { notes: [440, 392, 329.63, 349.23, 392, 440, 493.88, 0], durs: [0.5, 0.5, 1, 1, 0.5, 0.5, 1.5, 1.5] },
+  { notes: [293.66, 329.63, 392, 0, 440, 392, 349.23, 329.63], durs: [1, 0.5, 1, 0.5, 1, 0.5, 1, 1.5] },
+  { notes: [493.88, 440, 392, 440, 493.88, 523.25, 440, 0], durs: [0.5, 0.5, 1, 1, 0.5, 0.5, 2, 1.5] },
+  { notes: [0, 329.63, 392, 440, 0, 493.88, 440, 329.63], durs: [1, 0.5, 0.5, 1, 1, 0.5, 1, 1.5] },
+];
+
+// Different drum patterns
+const drumPatterns = [
+  // classic boom-bap
+  function(dest, t) {
+    playKick(dest, t); playSnare(dest, t + BEAT); playKick(dest, t + BEAT * 2);
+    playKick(dest, t + BEAT * 2.5); playSnare(dest, t + BEAT * 3);
+    playKick(dest, t + BEAT * 4); playSnare(dest, t + BEAT * 5);
+    playKick(dest, t + BEAT * 6); playKick(dest, t + BEAT * 6.75); playSnare(dest, t + BEAT * 7);
+  },
+  // double-time energy
+  function(dest, t) {
+    playKick(dest, t); playKick(dest, t + BEAT * 0.5); playSnare(dest, t + BEAT);
+    playKick(dest, t + BEAT * 2); playSnare(dest, t + BEAT * 3);
+    playKick(dest, t + BEAT * 3.5); playKick(dest, t + BEAT * 4);
+    playSnare(dest, t + BEAT * 5); playKick(dest, t + BEAT * 6);
+    playSnare(dest, t + BEAT * 6.5); playKick(dest, t + BEAT * 7); playSnare(dest, t + BEAT * 7.5);
+  },
+  // half-time heavy
+  function(dest, t) {
+    playKick(dest, t); playSnare(dest, t + BEAT * 2);
+    playKick(dest, t + BEAT * 4); playKick(dest, t + BEAT * 5);
+    playSnare(dest, t + BEAT * 6); playKick(dest, t + BEAT * 7.5);
+  },
+  // trap-style kicks
+  function(dest, t) {
+    playKick(dest, t); playKick(dest, t + BEAT * 0.25);
+    playSnare(dest, t + BEAT); playKick(dest, t + BEAT * 2);
+    playKick(dest, t + BEAT * 2.75); playSnare(dest, t + BEAT * 3);
+    playKick(dest, t + BEAT * 4); playKick(dest, t + BEAT * 4.25); playKick(dest, t + BEAT * 4.5);
+    playSnare(dest, t + BEAT * 5); playKick(dest, t + BEAT * 6);
+    playSnare(dest, t + BEAT * 7);
+  },
+];
+
+// Hi-hat patterns
+const hihatPatterns = [
+  // standard 8ths with open on offbeats
+  function(dest, t) {
+    for (let i = 0; i < 16; i++) playHiHat(dest, t + i * BEAT * 0.5, i % 4 === 3);
+  },
+  // trap triplet rolls
+  function(dest, t) {
+    for (let i = 0; i < 8; i++) {
+      playHiHat(dest, t + i * BEAT, false);
+      if (i % 2 === 1) { // triplet roll on offbeats
+        playHiHat(dest, t + i * BEAT + BEAT * 0.33, false);
+        playHiHat(dest, t + i * BEAT + BEAT * 0.66, true);
+      }
+    }
+  },
+  // sparse groove
+  function(dest, t) {
+    playHiHat(dest, t, false); playHiHat(dest, t + BEAT * 1.5, true);
+    playHiHat(dest, t + BEAT * 2, false); playHiHat(dest, t + BEAT * 3, false);
+    playHiHat(dest, t + BEAT * 4, false); playHiHat(dest, t + BEAT * 5.5, true);
+    playHiHat(dest, t + BEAT * 6, false); playHiHat(dest, t + BEAT * 7, false);
+  },
+  // rapid 16ths
+  function(dest, t) {
+    for (let i = 0; i < 32; i++) playHiHat(dest, t + i * BEAT * 0.25, i % 8 === 7);
+  },
+];
+
+// Car music: heavier bass and different patterns
+const carBassPattern = [55, 55, 73.42, 65.41, 55, 82.41, 73.42, 55]; // deep sub bass
+const carMelody = { notes: [220, 261.63, 293.66, 0, 220, 246.94, 220, 0], durs: [1, 0.5, 0.5, 1, 1, 0.5, 1, 1.5] };
+
+function getMusicPhase() {
+  // Phase changes every ~150m for variety
+  return Math.floor(distance / 150);
+}
 
 // Must be called synchronously inside a user gesture (tap/click/key)
 function startMusic() {
   if (musicPlaying) return;
   try {
-    // Create AudioContext fresh inside user gesture (required by iOS Safari)
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Resume synchronously inside gesture
     if (audioCtx.state === 'suspended') audioCtx.resume();
 
-    // Play a silent buffer to fully unlock iOS audio pipeline
     const silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
     const silentSrc = audioCtx.createBufferSource();
     silentSrc.buffer = silentBuf;
     silentSrc.connect(audioCtx.destination);
     silentSrc.start(0);
 
-    // Start music synchronously - do NOT defer with .then()
     musicPlaying = true;
+    musicLoopCount = 0;
+    musicPhase = 0;
+    inCarMusic = false;
     const master = audioCtx.createGain();
     master.gain.setValueAtTime(0.6, audioCtx.currentTime);
     master.connect(audioCtx.destination);
@@ -47,7 +140,7 @@ function startMusic() {
     loopBass(master);
     loopMelody(master);
     loopHiHat(master);
-  } catch (e) { /* audio not supported, game still works */ }
+  } catch (e) {}
 }
 
 function stopMusic() {
@@ -63,6 +156,79 @@ function stopMusic() {
   clearTimeout(musicNodes.melodyTimeout);
   clearTimeout(musicNodes.hihatTimeout);
   musicNodes = {};
+  stopEngineSound();
+}
+
+// --- Engine sound for car ---
+function startEngineSound() {
+  if (engineNode || !audioCtx) return;
+  try {
+    // Low rumble oscillator
+    const osc1 = audioCtx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.value = 75;
+    const osc2 = audioCtx.createOscillator();
+    osc2.type = 'square';
+    osc2.frequency.value = 37.5;
+    // Noise for engine texture
+    const bufSize = audioCtx.sampleRate * 2;
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const noiseSrc = audioCtx.createBufferSource();
+    noiseSrc.buffer = buf;
+    noiseSrc.loop = true;
+    // Filter for rumble
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 180;
+    lp.Q.value = 3;
+    // Gain with LFO for engine pulsing
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.3);
+    const lfo = audioCtx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 6; // engine pulse rate
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 0.05;
+    lfo.connect(lfoGain);
+    lfoGain.connect(gain.gain);
+    osc1.connect(lp);
+    osc2.connect(lp);
+    noiseSrc.connect(lp);
+    lp.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc1.start(); osc2.start(); noiseSrc.start(); lfo.start();
+    engineNode = { osc1, osc2, noiseSrc, gain, lfo, lfoGain };
+  } catch (e) {}
+}
+
+function stopEngineSound() {
+  if (!engineNode) return;
+  try {
+    engineNode.gain.gain.setValueAtTime(engineNode.gain.gain.value, audioCtx.currentTime);
+    engineNode.gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+    setTimeout(() => {
+      try {
+        engineNode.osc1.stop(); engineNode.osc2.stop();
+        engineNode.noiseSrc.stop(); engineNode.lfo.stop();
+      } catch (e) {}
+      engineNode = null;
+    }, 400);
+  } catch (e) { engineNode = null; }
+}
+
+// Rev engine pitch with speed
+function updateEngineSound() {
+  if (!engineNode || !audioCtx) return;
+  try {
+    const spd = Math.min(speed, 11);
+    const freq = 60 + spd * 8; // 60-148 Hz
+    engineNode.osc1.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    engineNode.osc2.frequency.setValueAtTime(freq * 0.5, audioCtx.currentTime);
+    engineNode.lfo.frequency.setValueAtTime(4 + spd * 0.8, audioCtx.currentTime);
+  } catch (e) {}
 }
 
 function playKick(dest, time) {
@@ -70,9 +236,10 @@ function playKick(dest, time) {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(150, time);
-    osc.frequency.exponentialRampToValueAtTime(30, time + 0.12);
-    gain.gain.setValueAtTime(1, time);
+    const inCar = player.hasShield;
+    osc.frequency.setValueAtTime(inCar ? 180 : 150, time);
+    osc.frequency.exponentialRampToValueAtTime(inCar ? 25 : 30, time + 0.12);
+    gain.gain.setValueAtTime(inCar ? 1.2 : 1, time);
     gain.gain.exponentialRampToValueAtTime(0.01, time + 0.25);
     osc.connect(gain);
     gain.connect(dest);
@@ -94,7 +261,7 @@ function playSnare(dest, time) {
     noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.12);
     const filt = audioCtx.createBiquadFilter();
     filt.type = 'highpass';
-    filt.frequency.value = 1500;
+    filt.frequency.value = player.hasShield ? 2000 : 1500;
     noise.connect(filt);
     filt.connect(noiseGain);
     noiseGain.connect(dest);
@@ -139,41 +306,42 @@ function playHiHat(dest, time, open) {
   } catch (e) {}
 }
 
-// Drum loop: classic boom-bap pattern
+// Drum loop: picks pattern based on phase/car
 function loopBeat(dest) {
   if (!musicPlaying) return;
   try {
     const t = audioCtx.currentTime + 0.1;
-    playKick(dest, t);
-    playSnare(dest, t + BEAT);
-    playKick(dest, t + BEAT * 2);
-    playKick(dest, t + BEAT * 2.5);
-    playSnare(dest, t + BEAT * 3);
-    playKick(dest, t + BEAT * 4);
-    playSnare(dest, t + BEAT * 5);
-    playKick(dest, t + BEAT * 6);
-    playKick(dest, t + BEAT * 6.75);
-    playSnare(dest, t + BEAT * 7);
+    const phase = getMusicPhase();
+    if (player.hasShield) {
+      // Car mode: trap-style kicks always
+      drumPatterns[3](dest, t);
+    } else {
+      const patIdx = (phase + Math.floor(musicLoopCount / 2)) % drumPatterns.length;
+      drumPatterns[patIdx](dest, t);
+    }
   } catch (e) {}
   musicNodes.beatTimeout = setTimeout(() => loopBeat(dest), BEAT * 8 * 1000 - 100);
 }
 
-// Bass line
+// Bass line: evolves with distance, different in car
 function loopBass(dest) {
   if (!musicPlaying) return;
   try {
     const t = audioCtx.currentTime + 0.1;
-    const notes = [82.41, 98, 82.41, 73.42, 82.41, 110, 98, 82.41];
+    const phase = getMusicPhase();
+    const notes = player.hasShield ? carBassPattern
+      : bassPatterns[(phase + Math.floor(musicLoopCount / 3)) % bassPatterns.length];
     for (let i = 0; i < notes.length; i++) {
+      if (notes[i] === 0) continue; // rest
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = 'sawtooth';
+      osc.type = player.hasShield ? 'sine' : 'sawtooth'; // deeper sub in car
       osc.frequency.value = notes[i];
       const filt = audioCtx.createBiquadFilter();
       filt.type = 'lowpass';
-      filt.frequency.value = 200;
-      filt.Q.value = 5;
-      gain.gain.setValueAtTime(0.4, t + i * BEAT);
+      filt.frequency.value = player.hasShield ? 140 : 200;
+      filt.Q.value = player.hasShield ? 8 : 5;
+      gain.gain.setValueAtTime(player.hasShield ? 0.55 : 0.4, t + i * BEAT);
       gain.gain.exponentialRampToValueAtTime(0.01, t + i * BEAT + BEAT * 0.8);
       osc.connect(filt);
       filt.connect(gain);
@@ -185,53 +353,59 @@ function loopBass(dest) {
   musicNodes.bassTimeout = setTimeout(() => loopBass(dest), BEAT * 8 * 1000 - 100);
 }
 
-// Melody: dark minor key synth
+// Melody: evolves with phases, changes in car
 function loopMelody(dest) {
   if (!musicPlaying) return;
   try {
     const t = audioCtx.currentTime + 0.1;
-    const melodyNotes = [329.63, 392, 440, 392, 329.63, 293.66, 329.63, 0];
-    const durations =   [1,      0.5, 0.5, 1,   0.5,    0.5,    1.5,    1.5];
+    const phase = getMusicPhase();
+    const mel = player.hasShield ? carMelody
+      : melodyPatterns[(phase + Math.floor(musicLoopCount / 2)) % melodyPatterns.length];
     let offset = 0;
-    for (let i = 0; i < melodyNotes.length; i++) {
-      if (melodyNotes[i] > 0) {
+    for (let i = 0; i < mel.notes.length; i++) {
+      if (mel.notes[i] > 0) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'square';
-        osc.frequency.value = melodyNotes[i];
+        osc.type = player.hasShield ? 'sine' : 'square';
+        osc.frequency.value = mel.notes[i];
         const osc2 = audioCtx.createOscillator();
-        osc2.type = 'sawtooth';
-        osc2.frequency.value = melodyNotes[i] * 1.003;
+        osc2.type = player.hasShield ? 'triangle' : 'sawtooth';
+        osc2.frequency.value = mel.notes[i] * 1.003;
         const filt = audioCtx.createBiquadFilter();
         filt.type = 'lowpass';
-        filt.frequency.value = 1200;
+        filt.frequency.value = player.hasShield ? 800 : 1200;
         gain.gain.setValueAtTime(0.001, t + offset * BEAT);
-        gain.gain.linearRampToValueAtTime(0.1, t + offset * BEAT + 0.03);
-        gain.gain.setValueAtTime(0.1, t + (offset + durations[i] * 0.7) * BEAT);
-        gain.gain.linearRampToValueAtTime(0.001, t + (offset + durations[i]) * BEAT);
+        gain.gain.linearRampToValueAtTime(player.hasShield ? 0.07 : 0.1, t + offset * BEAT + 0.03);
+        gain.gain.setValueAtTime(player.hasShield ? 0.07 : 0.1, t + (offset + mel.durs[i] * 0.7) * BEAT);
+        gain.gain.linearRampToValueAtTime(0.001, t + (offset + mel.durs[i]) * BEAT);
         osc.connect(filt);
         osc2.connect(filt);
         filt.connect(gain);
         gain.connect(dest);
         osc.start(t + offset * BEAT);
-        osc.stop(t + (offset + durations[i]) * BEAT + 0.01);
+        osc.stop(t + (offset + mel.durs[i]) * BEAT + 0.01);
         osc2.start(t + offset * BEAT);
-        osc2.stop(t + (offset + durations[i]) * BEAT + 0.01);
+        osc2.stop(t + (offset + mel.durs[i]) * BEAT + 0.01);
       }
-      offset += durations[i];
+      offset += mel.durs[i];
     }
   } catch (e) {}
+  musicLoopCount++;
   musicNodes.melodyTimeout = setTimeout(() => loopMelody(dest), BEAT * 8 * 1000 - 100);
 }
 
-// Hi-hat pattern
+// Hi-hat: evolves and changes in car
 function loopHiHat(dest) {
   if (!musicPlaying) return;
   try {
     const t = audioCtx.currentTime + 0.1;
-    for (let i = 0; i < 16; i++) {
-      const open = (i === 3 || i === 7 || i === 11 || i === 15);
-      playHiHat(dest, t + i * BEAT * 0.5, open);
+    const phase = getMusicPhase();
+    if (player.hasShield) {
+      // Car: rapid trap hi-hats
+      hihatPatterns[3](dest, t);
+    } else {
+      const patIdx = (phase + Math.floor(musicLoopCount / 2)) % hihatPatterns.length;
+      hihatPatterns[patIdx](dest, t);
     }
   } catch (e) {}
   musicNodes.hihatTimeout = setTimeout(() => loopHiHat(dest), BEAT * 8 * 1000 - 100);
@@ -360,6 +534,7 @@ function startGame() {
   player.batCooldown = 0;
   player.gunTimer = 0;
   player.hasShield = false;
+  stopEngineSound();
   player.batSwing = 0;
   player.muzzleFlash = 0;
   player.carCrash = 0;
@@ -681,6 +856,9 @@ function update() {
   speed = 4 + frameCount * 0.003;
   if (speed > 11) speed = 11;
 
+  // Update engine sound pitch with speed
+  if (player.hasShield) updateEngineSound();
+
   // player physics
   player.vy += GRAVITY;
   player.y += player.vy;
@@ -857,6 +1035,7 @@ function update() {
         // Car shield absorbs one hit then breaks
         if (player.hasShield) {
           player.hasShield = false;
+          stopEngineSound();
           player.carCrash = 25; // crash animation
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
           // Big car-breaking particle explosion
@@ -1538,6 +1717,7 @@ function buyItem(index) {
   } else if (index === 1) {
     // Car - one hit shield
     player.hasShield = true;
+    startEngineSound();
   } else {
     // Chain
     player.chainsWorn++;
