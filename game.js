@@ -22,7 +22,22 @@ const BEAT = 60 / BPM;
 function initAudio() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // iOS requires a silent buffer played from a touch event to unlock audio
+  const silentBuf = audioCtx.createBuffer(1, 1, 22050);
+  const src = audioCtx.createBufferSource();
+  src.buffer = silentBuf;
+  src.connect(audioCtx.destination);
+  src.start(0);
 }
+
+// Eagerly init audio on first user interaction (needed for mobile)
+function earlyInitAudio() {
+  initAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+document.addEventListener('touchstart', earlyInitAudio, { once: true });
+document.addEventListener('mousedown', earlyInitAudio, { once: true });
+document.addEventListener('keydown', earlyInitAudio, { once: true });
 
 function startMusic() {
   if (musicPlaying) return;
@@ -381,14 +396,14 @@ function spawnThings() {
   if (spawnTimer > gap) {
     spawnTimer = 0;
     const r = Math.random();
-    if (r < 0.38) {
+    if (r < 0.35) {
       spawnCash(canvas.width + 20, gY - 30 - Math.random() * 120);
-    } else if (r < 0.58) {
+    } else if (r < 0.55) {
       spawnChain(canvas.width + 20, gY - 40 - Math.random() * 100);
-    } else if (r < 0.78) {
+    } else if (r < 0.73) {
       spawnCop(canvas.width + 20);
-    } else if (r < 0.87 && frameCount > 600) {
-      // SWAT team - only after ~10 seconds, rare spawn
+    } else if (r < 0.88 && frameCount > 300) {
+      // SWAT team - appears after ~5 seconds, ~15% spawn chance
       spawnSwat(canvas.width + 20);
     } else {
       // cash row
@@ -946,46 +961,54 @@ function drawPlayer() {
   ctx.fillStyle = '#cc0000';
   ctx.fillRect(-13, -56, 26, 4);
 
-  // chains on neck (only shown when collected)
+  // chains on neck (only shown when collected - up to 5)
   if (p.chainsWorn > 0) {
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 6 + p.chainsWorn * 2;
-    for (let i = 0; i < p.chainsWorn; i++) {
-      const chainRadius = 8 + i * 3;
-      const chainY = -44 - i * 3;
-      // Chain links effect
-      const segments = 12 + i * 2;
-      ctx.lineWidth = 2;
-      for (let s = 0; s < segments; s++) {
-        const a1 = (s / segments) * Math.PI * 2;
-        const a2 = ((s + 0.6) / segments) * Math.PI * 2;
-        const gold = i % 2 === 0 ? '#ffd700' : '#ffec80';
-        ctx.strokeStyle = gold;
-        ctx.beginPath();
-        ctx.arc(0, chainY, chainRadius, a1, a2);
-        ctx.stroke();
-      }
-      // Pendant on the first chain
-      if (i === 0) {
-        ctx.fillStyle = '#ffd700';
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.moveTo(0, chainY + chainRadius - 1);
-        ctx.lineTo(4, chainY + chainRadius + 7);
-        ctx.lineTo(0, chainY + chainRadius + 5);
-        ctx.lineTo(-4, chainY + chainRadius + 7);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // Dollar sign pendant on 3rd chain
-      if (i === 2) {
-        ctx.fillStyle = '#ffd700';
-        ctx.font = 'bold 7px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('$', 0, chainY + chainRadius + 7);
-      }
+    const chainColors = ['#ffd700', '#ffec80', '#daa520', '#fff176', '#e6be00'];
+    for (let i = p.chainsWorn - 1; i >= 0; i--) {
+      const radius = 7 + i * 2.5;
+      const cy = -46 + i * 1.5;
+      // Gold glow
+      ctx.save();
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 4 + p.chainsWorn;
+      // Thick chain line
+      ctx.strokeStyle = chainColors[i];
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, cy, radius, 0.15, Math.PI - 0.15);
+      ctx.stroke();
+      // Highlight shimmer
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, cy, radius - 0.5, 0.4, Math.PI - 0.7);
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.shadowBlur = 0;
+    // Pendant on longest chain (last collected = outermost)
+    const lastIdx = p.chainsWorn - 1;
+    const pendantR = 7 + lastIdx * 2.5;
+    const pendantCy = -46 + lastIdx * 1.5;
+    const px = 0;
+    const py = pendantCy + pendantR;
+    ctx.save();
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffd700';
+    // Diamond shape pendant
+    ctx.beginPath();
+    ctx.moveTo(px, py - 2);
+    ctx.lineTo(px + 4, py + 3);
+    ctx.lineTo(px, py + 7);
+    ctx.lineTo(px - 4, py + 3);
+    ctx.closePath();
+    ctx.fill();
+    // Sparkle dot
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(px - 1, py + 1, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   // arms
