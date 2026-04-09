@@ -16,56 +16,38 @@ window.addEventListener('resize', resizeCanvas);
 let audioCtx = null;
 let musicPlaying = false;
 let musicNodes = {};
-let audioUnlocked = false;
 const BPM = 95;
 const BEAT = 60 / BPM;
 
-function unlockAudio() {
-  if (audioUnlocked) return;
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // Play silent buffer to unlock on iOS
-    const buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(audioCtx.destination);
-    src.start(0);
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    audioUnlocked = true;
-  } catch (e) { /* audio not supported */ }
-}
-
-// Unlock audio on ANY user interaction
-['touchstart', 'touchend', 'mousedown', 'click', 'keydown'].forEach(evt => {
-  document.addEventListener(evt, unlockAudio, { capture: true });
-});
-
+// Must be called synchronously inside a user gesture (tap/click/key)
 function startMusic() {
   if (musicPlaying) return;
   try {
-    unlockAudio();
-    if (!audioCtx) return;
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().then(() => actuallyStartMusic());
-    } else {
-      actuallyStartMusic();
-    }
-  } catch (e) { /* audio failed, game still works */ }
-}
+    // Create AudioContext fresh inside user gesture (required by iOS Safari)
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-function actuallyStartMusic() {
-  if (musicPlaying) return;
-  musicPlaying = true;
+    // Resume synchronously inside gesture
+    if (audioCtx.state === 'suspended') audioCtx.resume();
 
-  const master = audioCtx.createGain();
-  master.gain.setValueAtTime(0.5, audioCtx.currentTime);
-  master.connect(audioCtx.destination);
-  musicNodes.master = master;
+    // Play a silent buffer to fully unlock iOS audio pipeline
+    const silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    const silentSrc = audioCtx.createBufferSource();
+    silentSrc.buffer = silentBuf;
+    silentSrc.connect(audioCtx.destination);
+    silentSrc.start(0);
 
-  loopBeat(master);
-  loopBass(master);
-  loopMelody(master);
-  loopHiHat(master);
+    // Start music synchronously - do NOT defer with .then()
+    musicPlaying = true;
+    const master = audioCtx.createGain();
+    master.gain.setValueAtTime(0.6, audioCtx.currentTime);
+    master.connect(audioCtx.destination);
+    musicNodes.master = master;
+
+    loopBeat(master);
+    loopBass(master);
+    loopMelody(master);
+    loopHiHat(master);
+  } catch (e) { /* audio not supported, game still works */ }
 }
 
 function stopMusic() {
@@ -291,7 +273,6 @@ let jumpPressed = false;
 let jumpHeld = false;
 
 function doJump() {
-  unlockAudio();
   if (state === STATE.START) { startGame(); return; }
   if (state === STATE.DEAD) return;
   if (player.jumpsLeft > 0) {
