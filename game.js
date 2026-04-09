@@ -452,66 +452,74 @@ function spawnSwat(x) {
 
 function spawnK9(x) {
   const gY = GROUND_Y();
-  // Short but fast dog + handler
+  // Short but fast dog - spawn further out for reaction time
   const h = 28, w = 44;
   obstacles.push({
     type: 'k9',
-    x, y: gY - h, w, h,
-    speed: 2.5 + Math.random() * 1,
+    x: x + 80, y: gY - h, w, h,
+    speed: 1.2 + Math.random() * 0.6,
     frame: 0, frameTimer: 0,
     barked: false,
   });
-  // Play bark warning sound
+  // Play bark warning early so player has time to react
   playBark();
+  // Second bark a moment later
+  setTimeout(() => { try { playBark(); } catch (e) {} }, 400);
 }
 
 function playBark() {
   if (!audioCtx) return;
   try {
     const t = audioCtx.currentTime;
-    // Bark 1
-    const osc1 = audioCtx.createOscillator();
-    const g1 = audioCtx.createGain();
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(300, t);
-    osc1.frequency.exponentialRampToValueAtTime(150, t + 0.08);
-    g1.gain.setValueAtTime(0.4, t);
-    g1.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
-    osc1.connect(g1);
-    g1.connect(audioCtx.destination);
-    osc1.start(t);
-    osc1.stop(t + 0.1);
-    // Bark 2 (slightly delayed)
-    const osc2 = audioCtx.createOscillator();
-    const g2 = audioCtx.createGain();
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(350, t + 0.15);
-    osc2.frequency.exponentialRampToValueAtTime(180, t + 0.25);
-    g2.gain.setValueAtTime(0.5, t + 0.15);
-    g2.gain.exponentialRampToValueAtTime(0.01, t + 0.27);
-    osc2.connect(g2);
-    g2.connect(audioCtx.destination);
-    osc2.start(t + 0.15);
-    osc2.stop(t + 0.27);
-    // Noise burst for growl texture
-    const bufSize = Math.floor(audioCtx.sampleRate * 0.15);
+
+    // Sharp attack "woof" - high pitch snap down (like a real bark)
+    const bark = audioCtx.createOscillator();
+    const barkGain = audioCtx.createGain();
+    bark.type = 'square';
+    bark.frequency.setValueAtTime(600, t);
+    bark.frequency.exponentialRampToValueAtTime(250, t + 0.04);
+    bark.frequency.setValueAtTime(250, t + 0.04);
+    bark.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+    barkGain.gain.setValueAtTime(0.6, t);
+    barkGain.gain.setValueAtTime(0.4, t + 0.04);
+    barkGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+    bark.connect(barkGain);
+    barkGain.connect(audioCtx.destination);
+    bark.start(t);
+    bark.stop(t + 0.15);
+
+    // Breathy noise layer for realism
+    const bufSize = Math.floor(audioCtx.sampleRate * 0.12);
     const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1);
     const noise = audioCtx.createBufferSource();
     noise.buffer = buf;
     const ng = audioCtx.createGain();
-    ng.gain.setValueAtTime(0.2, t + 0.12);
-    ng.gain.exponentialRampToValueAtTime(0.01, t + 0.27);
+    ng.gain.setValueAtTime(0.25, t);
+    ng.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
     const filt = audioCtx.createBiquadFilter();
     filt.type = 'bandpass';
-    filt.frequency.value = 400;
-    filt.Q.value = 3;
+    filt.frequency.value = 800;
+    filt.Q.value = 1.5;
     noise.connect(filt);
     filt.connect(ng);
     ng.connect(audioCtx.destination);
-    noise.start(t + 0.12);
-    noise.stop(t + 0.27);
+    noise.start(t);
+    noise.stop(t + 0.12);
+
+    // Sub thump for the "woof" body
+    const sub = audioCtx.createOscillator();
+    const subGain = audioCtx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(150, t);
+    sub.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+    subGain.gain.setValueAtTime(0.35, t);
+    subGain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+    sub.connect(subGain);
+    subGain.connect(audioCtx.destination);
+    sub.start(t);
+    sub.stop(t + 0.1);
   } catch (e) {}
 }
 
