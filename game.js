@@ -2424,7 +2424,7 @@ function drawWeaponHUD() {
   if (state !== STATE.PLAYING || player.weaponTier < 1) return;
   const w = canvas.width;
   const hudX = w - 32;
-  const hudY = 72; // below the score bar
+  const hudY = Math.floor(canvas.height * 0.4); // at skyscraper top level
 
   ctx.save();
   // Bat cooldown ring
