@@ -1589,18 +1589,18 @@ const WEAPON_TIERS = [
 
 function getShopLayout() {
   const w = canvas.width, h = canvas.height;
-  const cardW = Math.min(120, w * 0.28);
-  const cardH = cardW * 1.4;
-  const gap = Math.min(16, w * 0.03);
+  const cardW = Math.min(160, w * 0.30);
+  const cardH = cardW * 1.55;
+  const gap = Math.min(14, w * 0.025);
   const totalW = cardW * 3 + gap * 2;
   const startX = (w - totalW) / 2;
-  const startY = h * 0.28;
-  const btnW = Math.min(180, w * 0.44);
-  const btnH = 40;
+  const startY = h * 0.29;
+  const btnW = Math.min(200, w * 0.44);
+  const btnH = 44;
   const btnGap = Math.min(12, w * 0.03);
   const totalBtnW = btnW * 2 + btnGap;
   const btnStartX = (w - totalBtnW) / 2;
-  const btnY = startY + cardH + 40;
+  const btnY = startY + cardH + 24;
 
   const cards = [];
   for (let i = 0; i < 3; i++) {
@@ -1685,8 +1685,8 @@ function drawShop() {
 
     // Icon
     const iconCx = card.x + card.w / 2;
-    const iconCy = card.y + card.h * 0.32;
-    const iconSize = card.w * 0.3;
+    const iconCy = card.y + card.h * 0.26;
+    const iconSize = card.w * 0.42;
     ctx.save();
     if (i === 0) drawWeaponIcon(iconCx, iconCy, iconSize, canAfford || item.owned, item.tier);
     else if (i === 1) drawCarIcon(iconCx, iconCy, iconSize, canAfford || item.owned);
@@ -1695,28 +1695,28 @@ function drawShop() {
 
     // Name
     ctx.fillStyle = (canAfford || item.owned) ? '#fff' : '#666';
-    ctx.font = 'bold ' + Math.min(13, card.w * 0.11) + 'px Arial';
+    ctx.font = 'bold ' + Math.min(18, card.w * 0.14) + 'px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(item.name, iconCx, card.y + card.h * 0.6);
+    ctx.fillText(item.name, iconCx, card.y + card.h * 0.54);
 
     // Description (multi-line)
-    ctx.fillStyle = (canAfford || item.owned) ? '#aaa' : '#555';
-    const descFont = Math.min(9, card.w * 0.078);
+    ctx.fillStyle = (canAfford || item.owned) ? '#bbb' : '#555';
+    const descFont = Math.min(13, card.w * 0.095);
     ctx.font = descFont + 'px Arial';
     const descLines = item.desc.split('\n');
     for (let dl = 0; dl < descLines.length; dl++) {
-      ctx.fillText(descLines[dl], iconCx, card.y + card.h * 0.68 + dl * (descFont + 3));
+      ctx.fillText(descLines[dl], iconCx, card.y + card.h * 0.64 + dl * (descFont + 3));
     }
 
     // Price / status
     if (item.owned) {
       ctx.fillStyle = '#00e676';
-      ctx.font = 'bold ' + Math.min(14, card.w * 0.12) + 'px Arial';
-      ctx.fillText(item.type === 'weapon' ? 'MAX' : 'OWNED', iconCx, card.y + card.h * 0.88);
+      ctx.font = 'bold ' + Math.min(19, card.w * 0.15) + 'px Arial';
+      ctx.fillText(item.type === 'weapon' ? 'MAX' : 'OWNED', iconCx, card.y + card.h * 0.9);
     } else {
       ctx.fillStyle = canAfford ? '#ffd700' : '#666';
-      ctx.font = 'bold ' + Math.min(14, card.w * 0.12) + 'px Arial';
-      ctx.fillText('$' + item.price, iconCx, card.y + card.h * 0.88);
+      ctx.font = 'bold ' + Math.min(19, card.w * 0.15) + 'px Arial';
+      ctx.fillText('$' + item.price, iconCx, card.y + card.h * 0.9);
     }
   }
 
@@ -1730,9 +1730,10 @@ function drawShop() {
   ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 20);
   ctx.fill();
   ctx.fillStyle = '#000';
-  ctx.font = 'bold ' + Math.min(15, w * 0.038) + 'px Arial Black, Impact, sans-serif';
+  ctx.font = 'bold ' + Math.min(16, w * 0.04) + 'px Arial Black, Impact, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('KEEP RUNNING', btn.x + btn.w / 2, btn.y + btn.h / 2 + 5);
+  ctx.textBaseline = 'middle';
+  ctx.fillText('KEEP RUNNING', btn.x + btn.w / 2, btn.y + btn.h / 2);
 
   // Cash Out button
   const coBtn = layout.cashOutBtn;
@@ -1744,8 +1745,9 @@ function drawShop() {
   ctx.roundRect(coBtn.x, coBtn.y, coBtn.w, coBtn.h, 20);
   ctx.fill();
   ctx.fillStyle = '#000';
-  ctx.font = 'bold ' + Math.min(15, w * 0.038) + 'px Arial Black, Impact, sans-serif';
-  ctx.fillText('CASH OUT (' + totalRunChains + ')', coBtn.x + coBtn.w / 2, coBtn.y + coBtn.h / 2 + 5);
+  ctx.font = 'bold ' + Math.min(16, w * 0.04) + 'px Arial Black, Impact, sans-serif';
+  ctx.fillText('CASH OUT (' + totalRunChains + ')', coBtn.x + coBtn.w / 2, coBtn.y + coBtn.h / 2);
+  ctx.textBaseline = 'alphabetic';
 
   ctx.restore();
 }
