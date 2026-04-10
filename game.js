@@ -3260,7 +3260,7 @@ function getBlockLayout() {
   const btnW = Math.min(200, w * 0.5);
   const btnH = 44;
   const btnX = (w - btnW) / 2;
-  const btnY = streetY + (h - streetY) * 0.35;
+  const btnY = streetY + 10;
 
   return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
 }
