@@ -1581,10 +1581,10 @@ function playGunshot() {
 // Weapon tiers: 0=none, 1=bat, 2=pistol, 3=pistol+, 4=uzi
 const WEAPON_TIERS = [
   null,
-  { name: 'BAT', desc: 'Hits cops & K-9s', price: 500 },
-  { name: 'PISTOL', desc: 'Shoots every 15s', price: 1200 },
-  { name: 'PISTOL+', desc: 'Shoots every 10s', price: 2500 },
-  { name: 'UZI', desc: '3-round burst / 5s', price: 5000 },
+  { name: 'BAT', desc: 'Auto-swings at cops & K-9s\nevery 20s on contact', price: 500 },
+  { name: 'PISTOL', desc: 'Auto-fires at the nearest\nenemy every 15 seconds', price: 1200 },
+  { name: 'PISTOL+', desc: 'Faster pistol - shoots\nevery 10 seconds', price: 2500 },
+  { name: 'UZI', desc: '3-round burst every 5s\nNever miss a target', price: 5000 },
 ];
 
 function getShopLayout() {
@@ -1626,10 +1626,10 @@ function getShopCardData() {
   // Card 1: Car shield
   // Card 2: Chain
   return [
-    { name: maxedWeapon ? 'MAXED' : wData.name, desc: maxedWeapon ? 'All upgrades!' : wData.desc,
+    { name: maxedWeapon ? 'MAXED' : wData.name, desc: maxedWeapon ? 'All weapons unlocked!' : wData.desc,
       price: maxedWeapon ? 0 : wData.price, owned: maxedWeapon, type: 'weapon', tier: nextTier },
-    { name: 'CAR', desc: 'One-hit shield', price: 1000, owned: player.hasShield, type: 'car' },
-    { name: 'CHAIN', desc: 'Gold Chain', price: 300, owned: false, type: 'chain' },
+    { name: 'CAR', desc: 'Drive a sports car that\nprotects you from 1 hit', price: 1000, owned: player.hasShield, type: 'car' },
+    { name: 'CHAIN', desc: 'Buy a gold chain\nCash out at shops to keep!', price: 300, owned: false, type: 'chain' },
   ];
 }
 
@@ -1659,10 +1659,14 @@ function drawShop() {
   const weaponNames = ['None', 'Bat', 'Pistol', 'Pistol+', 'Uzi'];
   ctx.fillText('Checkpoint: ' + distance + 'm  |  Weapon: ' + weaponNames[player.weaponTier], w / 2, h * 0.17);
 
-  // Cash balance
+  // Cash balance + chains info
   ctx.fillStyle = '#00e676';
-  ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial';
-  ctx.fillText('💵 $' + cashCollected, w / 2, h * 0.23);
+  ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial';
+  const totalRunChains = chainsCollected + chainsBought;
+  ctx.fillText('💵 $' + cashCollected + '   ⛓️ ' + totalRunChains + ' chains', w / 2, h * 0.22);
+  ctx.fillStyle = '#888';
+  ctx.font = Math.min(11, w * 0.028) + 'px Arial';
+  ctx.fillText('Cash out to save chains to your block!', w / 2, h * 0.26);
 
   // Draw item cards
   for (let i = 0; i < 3; i++) {
@@ -1695,10 +1699,14 @@ function drawShop() {
     ctx.textAlign = 'center';
     ctx.fillText(item.name, iconCx, card.y + card.h * 0.6);
 
-    // Description
+    // Description (multi-line)
     ctx.fillStyle = (canAfford || item.owned) ? '#aaa' : '#555';
-    ctx.font = Math.min(10, card.w * 0.085) + 'px Arial';
-    ctx.fillText(item.desc, iconCx, card.y + card.h * 0.72);
+    const descFont = Math.min(9, card.w * 0.078);
+    ctx.font = descFont + 'px Arial';
+    const descLines = item.desc.split('\n');
+    for (let dl = 0; dl < descLines.length; dl++) {
+      ctx.fillText(descLines[dl], iconCx, card.y + card.h * 0.68 + dl * (descFont + 3));
+    }
 
     // Price / status
     if (item.owned) {
@@ -1728,7 +1736,6 @@ function drawShop() {
 
   // Cash Out button
   const coBtn = layout.cashOutBtn;
-  const totalRunChains = chainsCollected + chainsBought;
   const coGrad = ctx.createLinearGradient(coBtn.x, coBtn.y, coBtn.x + coBtn.w, coBtn.y);
   coGrad.addColorStop(0, '#00e676');
   coGrad.addColorStop(1, '#00c853');
