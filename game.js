@@ -582,13 +582,154 @@ const BUILDINGS = {
       { cost: 600, label: 'Shadow', desc: 'All black everything', effect: { shirt: '#1a1a1a', pants: '#0a0a0a', sneakers: '#2a2a2a' } },
     ],
   },
+  stashHouse: {
+    name: 'STASH HOUSE',
+    blockName: 'STASH HOUSE',
+    levels: [
+      { cost: 0, label: 'Empty', desc: 'No auto-save on death', effect: null },
+      { cost: 50, label: 'Lv 1', desc: '10% of chains saved on death', effect: { stashPct: 0.10 } },
+      { cost: 150, label: 'Lv 2', desc: '20% of chains saved on death', effect: { stashPct: 0.20 } },
+      { cost: 400, label: 'Lv 3', desc: '30% of chains saved on death', effect: { stashPct: 0.30 } },
+      { cost: 1000, label: 'Lv 4', desc: '40% of chains saved on death', effect: { stashPct: 0.40 } },
+    ],
+  },
+  vault: {
+    name: 'THE VAULT',
+    blockName: 'THE VAULT',
+    levels: [
+      { cost: 0, label: 'Locked', desc: 'Not owned yet', effect: null },
+      { cost: 200, label: 'Lv 1', desc: '2%/hr, cap 500, 5% raid', effect: { interest: 0.02, raid: 0.05, cap: 500 } },
+      { cost: 600, label: 'Lv 2', desc: '3%/hr, cap 2000, 4% raid', effect: { interest: 0.03, raid: 0.04, cap: 2000 } },
+      { cost: 1500, label: 'Lv 3', desc: '4%/hr, cap 5000, 3% raid', effect: { interest: 0.04, raid: 0.03, cap: 5000 } },
+      { cost: 3500, label: 'Lv 4', desc: '5%/hr, cap 15000, 2% raid', effect: { interest: 0.05, raid: 0.02, cap: 15000 } },
+    ],
+  },
 };
 
-let buildingLevels = JSON.parse(localStorage.getItem('hrBuildingLevels') || '{"trapHouse":0,"garage":0,"clothing":0}');
+let buildingLevels = JSON.parse(localStorage.getItem('hrBuildingLevels') || '{"trapHouse":0,"garage":0,"clothing":0,"stashHouse":0,"vault":0}');
+// Ensure new keys exist for players with old save data
+if (buildingLevels.stashHouse === undefined) buildingLevels.stashHouse = 0;
+if (buildingLevels.vault === undefined) buildingLevels.vault = 0;
+
+// Vault state (separate balance)
+let vaultBalance = parseFloat(localStorage.getItem('hrVaultBalance') || '0');
+let vaultLastCheck = parseInt(localStorage.getItem('hrVaultLastCheck') || Date.now());
 
 function saveBlockData() {
   localStorage.setItem('hrSavedChains', savedChains);
   localStorage.setItem('hrBuildingLevels', JSON.stringify(buildingLevels));
+  localStorage.setItem('hrVaultBalance', vaultBalance);
+  localStorage.setItem('hrVaultLastCheck', vaultLastCheck);
+}
+
+// --- Heat System (per-run state) ---
+let heat = 0;
+let lastChainFrame = 0;
+let heliForcedTimer = 0;
+let sniperTimer = 0;
+let heatFlashTimer = 0; // for the brief red screen tint at MAX
+
+// --- Per-run stat tracking (for contracts) ---
+let runStats = { chains: 0, distNoCar: 0, framesNoUpgrade: 0, cashouts: 0, k9Kills: 0, framesNoHit: 0, cash: 0, dist: 0, usedCar: false, startWeaponTier: 0 };
+
+// --- Daily Hit Contracts ---
+const CONTRACT_POOL = [
+  { id: 'chains10',  desc: 'Collect 10 chains in a single run',       goal: 10,   reward: 30,  track: 'chains' },
+  { id: 'dist1500',  desc: 'Reach 1500m without using the car',        goal: 1500, reward: 50,  track: 'distNoCar' },
+  { id: 'survive60', desc: 'Survive 60s with starting weapon only',    goal: 3600, reward: 40,  track: 'framesNoUpgrade' },
+  { id: 'cashout3',  desc: 'Cash out 3 shops in a single run',         goal: 3,    reward: 60,  track: 'cashouts' },
+  { id: 'kill5k9',   desc: 'Take down 5 K-9 units',                    goal: 5,    reward: 35,  track: 'k9Kills' },
+  { id: 'nohit90',   desc: 'Take zero hits for 90s',                   goal: 5400, reward: 75,  track: 'framesNoHit' },
+  { id: 'cash500',   desc: 'Collect $500 cash in one run',             goal: 500,  reward: 25,  track: 'cash' },
+  { id: 'beatBest',  desc: 'Beat your best by 200m',                   goal: 0,    reward: 50,  track: 'dist', dynamicGoal: true },
+];
+
+let contractId = localStorage.getItem('hrContractId') || null;
+let contractDate = localStorage.getItem('hrContractDate') || '';
+let contractProgress = parseFloat(localStorage.getItem('hrContractProgress') || '0');
+let contractCompleted = localStorage.getItem('hrContractCompleted') === '1';
+let contractBannerTime = 0; // frames to show "CONTRACT COMPLETE" banner
+let contractRunProgress = 0; // progress tracked in-run, committed on end
+let contractGoalCache = 0; // cached goal value (useful for dynamic goals)
+
+function getTodayStamp() {
+  const d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+
+function getContract() {
+  return CONTRACT_POOL.find(c => c.id === contractId) || null;
+}
+
+function rollDailyContract() {
+  const today = getTodayStamp();
+  if (contractDate === today && contractId) return; // already rolled today
+  // Seed by date for deterministic per-day contract
+  let seed = 0;
+  for (let i = 0; i < today.length; i++) seed = (seed * 31 + today.charCodeAt(i)) >>> 0;
+  const pick = CONTRACT_POOL[seed % CONTRACT_POOL.length];
+  contractId = pick.id;
+  contractDate = today;
+  contractProgress = 0;
+  contractCompleted = false;
+  saveContractData();
+}
+
+function saveContractData() {
+  localStorage.setItem('hrContractId', contractId || '');
+  localStorage.setItem('hrContractDate', contractDate || '');
+  localStorage.setItem('hrContractProgress', contractProgress);
+  localStorage.setItem('hrContractCompleted', contractCompleted ? '1' : '0');
+}
+
+function getContractGoal(c) {
+  if (!c) return 0;
+  if (c.dynamicGoal && c.id === 'beatBest') {
+    return Math.max(200, highScore * 10 + 200);
+  }
+  return c.goal;
+}
+
+function creditContractReward() {
+  if (!contractCompleted) return 0;
+  // Already credited flag tracked separately; use contractCompleted + a credited flag.
+  if (localStorage.getItem('hrContractRewardDate') === contractDate) return 0;
+  const c = getContract();
+  if (!c) return 0;
+  savedChains += c.reward;
+  localStorage.setItem('hrContractRewardDate', contractDate);
+  saveBlockData();
+  return c.reward;
+}
+
+// --- Vault helpers ---
+function vaultLevelData() {
+  return BUILDINGS.vault.levels[buildingLevels.vault];
+}
+function vaultEffect() {
+  return vaultLevelData().effect;
+}
+function vaultPendingInterest() {
+  const eff = vaultEffect();
+  if (!eff || vaultBalance <= 0) return 0;
+  const now = Date.now();
+  const hours = Math.min(24, (now - vaultLastCheck) / 3600000);
+  if (hours <= 0) return 0;
+  return vaultBalance * eff.interest * hours;
+}
+let vaultInterestNotice = 0; // frames to show "+X claimed" message
+let vaultInterestNoticeAmt = 0;
+function applyVaultInterest() {
+  const pending = vaultPendingInterest();
+  if (pending > 0.5) {
+    const eff = vaultEffect();
+    const addAmount = Math.min(pending, Math.max(0, eff.cap - vaultBalance));
+    vaultBalance += addAmount;
+    vaultInterestNoticeAmt = Math.floor(addAmount);
+    if (vaultInterestNoticeAmt > 0) vaultInterestNotice = 300; // ~5 seconds
+  }
+  vaultLastCheck = Date.now();
+  saveBlockData();
 }
 
 // Car hit points (for multi-hit car from garage upgrades)
@@ -636,6 +777,9 @@ function goToBlock() {
   document.getElementById('mobile-controls').style.display = 'none';
   stopMusic();
   stopEngineSound();
+  // Apply accumulated Vault interest on return
+  if (buildingLevels.vault > 0) applyVaultInterest();
+  rollDailyContract();
   if (animFrame) cancelAnimationFrame(animFrame);
   blockLoop();
 }
@@ -724,6 +868,18 @@ function startGame() {
   bullets = [];
   platforms = [];
 
+  // Heat System reset
+  heat = 0;
+  lastChainFrame = 0;
+  heliForcedTimer = 0;
+  sniperTimer = 0;
+  heatFlashTimer = 0;
+
+  // Per-run contract tracking (startWeaponTier captured after applying bonuses below)
+  rollDailyContract();
+  contractRunProgress = 0;
+  runStats = { chains: 0, distNoCar: 0, framesNoUpgrade: 0, cashouts: 0, k9Kills: 0, framesNoHit: 0, cash: 0, dist: 0, usedCar: false, startWeaponTier: 0 };
+
   // Apply building bonuses from the block
   // Trap House: starting weapon
   const trapLvl = buildingLevels.trapHouse;
@@ -738,12 +894,16 @@ function startGame() {
   if (garageEffect) {
     player.hasShield = true;
     carHitsLeft = garageEffect.carHits;
+    runStats.usedCar = true;
     startEngineSound();
   } else {
     player.hasShield = false;
     carHitsLeft = 0;
     stopEngineSound();
   }
+
+  // Capture starting weapon tier for "survive with starting weapon" contract
+  runStats.startWeaponTier = player.weaponTier;
 
   // Clothing: outfit colors
   const clothLvl = buildingLevels.clothing;
@@ -801,28 +961,30 @@ function spawnThings() {
   platformTimer++;
 
   const gY = GROUND_Y();
-  const gap = Math.max(55, 90 - frameCount * 0.01);
+  // Heat tightens spawn gap (+30% density at Scorching)
+  const heatGapMult = heat >= 76 ? 0.77 : heat >= 51 ? 0.9 : 1.0;
+  const gap = Math.max(55, 90 - frameCount * 0.01) * heatGapMult;
 
   if (spawnTimer > gap) {
     spawnTimer = 0;
     const r = Math.random();
+    // Heat shifts thresholds: warm bumps cop, hot unlocks K-9 early
+    const copTop = heat >= 26 ? 0.78 : 0.75;
+    const swatGate = heat >= 51 ? 400 : 500;
+    const k9Gate = heat >= 26 ? 400 : 600;
     if (r < 0.35) {
       spawnCash(canvas.width + 20, gY - 30 - Math.random() * 120);
     } else if (r < 0.55) {
       spawnChain(canvas.width + 20, gY - 40 - Math.random() * 100);
-    } else if (r < 0.75) {
+    } else if (r < copTop) {
       spawnCop(canvas.width + 20);
-    } else if (r < 0.82 && frameCount > 500) {
-      // SWAT team - rare, appears after ~8 seconds
+    } else if (r < copTop + 0.07 && frameCount > swatGate) {
       spawnSwat(canvas.width + 20);
-    } else if (r < 0.88 && frameCount > 400) {
-      // Helicopter - rare aerial threat, appears after ~7 seconds
+    } else if (r < copTop + 0.13 && frameCount > 400) {
       spawnHelicopter(canvas.width + 20);
-    } else if (r < 0.93 && frameCount > 600) {
-      // K-9 unit - very rare, fast but short, appears after ~10 seconds
+    } else if (r < copTop + 0.18 && frameCount > k9Gate) {
       spawnK9(canvas.width + 20);
     } else {
-      // cash row
       for (let i = 0; i < 4; i++) spawnCash(canvas.width + 20 + i * 32, gY - 55);
     }
   }
@@ -1043,6 +1205,48 @@ function spawnHitParticles(x, y) {
   }
 }
 
+// --- Heat helpers ---
+function heatChainMultiplier() {
+  if (heat >= 100) return 2.0;
+  if (heat >= 76) return 1.75;
+  if (heat >= 51) return 1.5;
+  if (heat >= 26) return 1.25;
+  return 1.0;
+}
+function heatTierLabel() {
+  if (heat >= 100) return 'MAX HEAT';
+  if (heat >= 76) return 'SCORCHING';
+  if (heat >= 51) return 'HOT';
+  if (heat >= 26) return 'WARM';
+  return 'COOL';
+}
+function heatTierColor() {
+  if (heat >= 100) return '#ff00ff';
+  if (heat >= 76) return '#ff0000';
+  if (heat >= 51) return '#ff6600';
+  if (heat >= 26) return '#ffcc00';
+  return '#00e676';
+}
+
+// --- Sniper shot (Scorching heat) ---
+let sniperWarning = null;
+function spawnSniperShot() {
+  // Simple red tracer from right-edge at player's current y, moves fast.
+  // Gives a brief laser-sight warning, then the projectile.
+  const targetY = player.y + player.h / 2;
+  sniperWarning = { y: targetY, life: 45 };
+  setTimeout(() => {
+    if (state !== STATE.PLAYING) return;
+    bullets.push({
+      x: canvas.width + 10,
+      y: targetY,
+      vx: -22, vy: 0,
+      sniper: true,
+      life: 60,
+    });
+  }, 700);
+}
+
 // --- Collision ---
 function rectOverlap(a, b, shrink = 0) {
   return a.x + shrink < b.x + b.w - shrink &&
@@ -1070,6 +1274,52 @@ function update() {
   // speed ramp
   speed = 4 + frameCount * 0.003;
   if (speed > 11) speed = 11;
+
+  // --- Heat decay ---
+  // Drops by 1 per second if no chain in last 3s.
+  if (heat > 0 && frameCount - lastChainFrame > 180) {
+    heat = Math.max(0, heat - 1 / 60);
+  }
+  if (heatFlashTimer > 0) heatFlashTimer--;
+
+  // --- Heat-driven forced spawns ---
+  if (heat >= 51) {
+    // Hot: force helicopter every 15-20s (900-1200f)
+    heliForcedTimer++;
+    const heliInterval = heat >= 76 ? 900 : 1100;
+    if (heliForcedTimer > heliInterval) {
+      heliForcedTimer = 0;
+      spawnHelicopter(canvas.width + 20);
+    }
+  } else {
+    heliForcedTimer = 0;
+  }
+  if (heat >= 76) {
+    // Scorching: sniper every 12s
+    sniperTimer++;
+    if (sniperTimer > 720) {
+      sniperTimer = 0;
+      spawnSniperShot();
+    }
+  } else {
+    sniperTimer = 0;
+  }
+
+  // --- Contract run-tracking (per-frame) ---
+  if (!runStats.usedCar) runStats.distNoCar = distance;
+  if (player.weaponTier <= runStats.startWeaponTier) runStats.framesNoUpgrade++;
+  if (player.invincible === 0) {
+    runStats.framesNoHit++;
+    if (runStats.framesNoHit > (runStats.maxFramesNoHit || 0)) runStats.maxFramesNoHit = runStats.framesNoHit;
+  } else {
+    runStats.framesNoHit = 0;
+  }
+  runStats.dist = distance;
+
+  // Mid-run contract completion check (every 30 frames)
+  if (!contractCompleted && frameCount % 30 === 0) {
+    checkContractMidRun();
+  }
 
   // Update engine sound pitch with speed
   if (player.hasShield) updateEngineSound();
@@ -1102,13 +1352,40 @@ function update() {
     }
   }
 
-  // Move bullets (tracers only - hits are instant now)
+  // Move bullets (tracers only for player guns; sniper bullets can hit)
   for (let i = bullets.length - 1; i >= 0; i--) {
     bullets[i].x += (bullets[i].vx || 12);
     bullets[i].y += (bullets[i].vy || 0);
-    if (bullets[i].x > canvas.width + 20 || bullets[i].y < -20 || bullets[i].y > canvas.height + 20) {
+    // Sniper bullet hits player
+    if (bullets[i].sniper && player.invincible === 0 && !player.dead) {
+      const pb = { x: player.x + 10, y: player.y + 10, w: player.w - 20, h: player.h - 16 };
+      if (bullets[i].x >= pb.x && bullets[i].x <= pb.x + pb.w && bullets[i].y >= pb.y && bullets[i].y <= pb.y + pb.h) {
+        // Shield absorbs, otherwise kill
+        if (player.hasShield) {
+          carHitsLeft--;
+          player.invincible = 30;
+          spawnHitParticles(bullets[i].x, bullets[i].y);
+          bullets.splice(i, 1);
+          if (carHitsLeft <= 0) {
+            player.hasShield = false;
+            stopEngineSound();
+            player.carCrash = 25;
+          }
+          continue;
+        }
+        bullets.splice(i, 1);
+        player.dead = true;
+        killPlayer();
+        continue;
+      }
+    }
+    if (bullets[i] && (bullets[i].x > canvas.width + 20 || bullets[i].x < -20 || bullets[i].y < -20 || bullets[i].y > canvas.height + 20)) {
       bullets.splice(i, 1);
     }
+  }
+  if (sniperWarning) {
+    sniperWarning.life--;
+    if (sniperWarning.life <= 0) sniperWarning = null;
   }
 
   // platform collision
@@ -1189,8 +1466,25 @@ function update() {
     const pb = { x: player.x + 4, y: player.y + 4, w: player.w - 8, h: player.h - 8 };
     if (rectOverlap(hitbox, pb)) {
       spawnCollectParticles(c.x + c.w / 2, c.y + c.h / 2, c.type);
-      if (c.type === 'cash') { cashCollected += 100; score += 100; player.bling = Math.min(player.bling + 1, 5); }
-      else { chainsCollected++; score += 500; player.bling = Math.min(player.bling + 2, 5); player.chainsWorn++; }
+      if (c.type === 'cash') {
+        cashCollected += 100; score += 100; player.bling = Math.min(player.bling + 1, 5);
+        runStats.cash += 100;
+      } else {
+        // Heat-based chain multiplier (probabilistic extra)
+        const mult = heatChainMultiplier();
+        const baseGain = Math.floor(mult);
+        const extraGain = (Math.random() < (mult - baseGain)) ? 1 : 0;
+        const chainsGained = Math.max(1, baseGain + extraGain);
+        chainsCollected += chainsGained;
+        score += 500 * chainsGained;
+        player.bling = Math.min(player.bling + 2, 5);
+        player.chainsWorn++;
+        runStats.chains++;
+        // Heat +8 per chain, capped at 100
+        heat = Math.min(100, heat + 8);
+        lastChainFrame = frameCount;
+        if (heat >= 100 && heatFlashTimer <= 0) heatFlashTimer = 30;
+      }
       collectibles.splice(i, 1);
       updateScoreUI();
     }
@@ -1216,6 +1510,7 @@ function update() {
           player.batCooldown = 1200; // 20 seconds at 60fps
           player.batSwing = 15; // swing animation
           spawnHitParticles(o.x + o.w / 2, o.y + o.h / 2);
+          if (o.type === 'k9') runStats.k9Kills++;
           obstacles.splice(oi, 1);
           score += 200;
           playBatCrack();
@@ -1499,6 +1794,7 @@ function spawnBulletAt(target) {
       tgt.x += perOfficer;
       if (tgt.officerCount <= 0) obstacles.splice(oi, 1);
     } else {
+      if (tgt.type === 'k9') runStats.k9Kills++;
       obstacles.splice(oi, 1);
     }
     score += 200;
@@ -1946,6 +2242,9 @@ function handleShopClick(clientX, clientY) {
   if (cx >= coBtn.x && cx <= coBtn.x + coBtn.w && cy >= coBtn.y && cy <= coBtn.y + coBtn.h) {
     const totalRunChains = chainsCollected + chainsBought;
     savedChains += totalRunChains;
+    runStats.cashouts++;
+    heat = 0; // cashing out wipes heat
+    finalizeContractOnRunEnd();
     saveBlockData();
     goToBlock();
     return;
@@ -1993,22 +2292,102 @@ function killPlayer() {
   state = STATE.DEAD;
   stopMusic();
   stopEngineSound();
-  // You lose all chains from this run when you die!
+
   const totalChains = chainsCollected + chainsBought;
   const isNewHigh = totalChains > highScore;
   if (isNewHigh) { highScore = totalChains; localStorage.setItem('hoodRunnerHS', highScore); }
+
+  // --- Stash House: auto-save % of run chains on death ---
+  const stashLvl = buildingLevels.stashHouse;
+  const stashEffect = BUILDINGS.stashHouse.levels[stashLvl].effect;
+  let stashSaved = 0;
+  if (stashEffect && totalChains > 0) {
+    stashSaved = Math.floor(totalChains * stashEffect.stashPct);
+    savedChains += stashSaved;
+  }
+
+  // --- Vault: cops raid % of balance on death ---
+  let vaultRaided = 0;
+  const vEff = vaultEffect();
+  if (vEff && vaultBalance > 0) {
+    vaultRaided = Math.floor(vaultBalance * vEff.raid);
+    vaultBalance = Math.max(0, vaultBalance - vaultRaided);
+  }
+
+  // --- Finalize run stats and check contract ---
+  finalizeContractOnRunEnd();
+  saveBlockData();
+
+  lastDeathInfo = { stashSaved, vaultRaided, totalChainsLost: totalChains - stashSaved };
   setTimeout(() => showGameOver(isNewHigh), 600);
 }
+
+let lastDeathInfo = { stashSaved: 0, vaultRaided: 0, totalChainsLost: 0 };
 
 function showGameOver(newHigh) {
   const totalChains = chainsCollected + chainsBought;
   document.getElementById('final-cash').textContent = '$' + cashCollected;
-  document.getElementById('final-chains').textContent = totalChains + ' LOST';
+  const lostTxt = lastDeathInfo.stashSaved > 0
+    ? (lastDeathInfo.totalChainsLost + ' lost / ' + lastDeathInfo.stashSaved + ' stashed')
+    : (totalChains + ' LOST');
+  document.getElementById('final-chains').textContent = lostTxt;
   document.getElementById('final-distance').textContent = distance + 'm';
   document.getElementById('final-score').textContent = savedChains + ' chains saved';
-  document.getElementById('high-score-msg').textContent = newHigh ? '🏆 NEW RUN RECORD!' : 'Cash out at shops to keep chains!';
+  let msg = newHigh ? '🏆 NEW RUN RECORD!' : 'Cash out at shops to keep chains!';
+  if (lastDeathInfo.vaultRaided > 0) msg += '  🚔 Cops raided ' + lastDeathInfo.vaultRaided + ' from Vault!';
+  document.getElementById('high-score-msg').textContent = msg;
   document.getElementById('high-score-display').textContent = 'Best: ' + highScore + ' chains';
   showScreen('game-over-screen');
+}
+
+function checkContractMidRun() {
+  const c = getContract();
+  if (!c || contractCompleted) return;
+  let progress = 0;
+  switch (c.track) {
+    case 'chains': progress = runStats.chains; break;
+    case 'distNoCar': progress = runStats.usedCar ? 0 : runStats.dist; break;
+    case 'framesNoUpgrade': progress = runStats.framesNoUpgrade; break;
+    case 'cashouts': progress = runStats.cashouts; break;
+    case 'k9Kills': progress = runStats.k9Kills; break;
+    case 'framesNoHit': progress = runStats.maxFramesNoHit || 0; break;
+    case 'cash': progress = runStats.cash; break;
+    case 'dist': progress = runStats.dist; break;
+  }
+  const goal = getContractGoal(c);
+  if (progress >= goal) {
+    contractCompleted = true;
+    contractBannerTime = 180;
+    contractProgress = progress;
+    creditContractReward();
+    saveContractData();
+    try { playShopSound(); } catch (e) {}
+  }
+}
+
+// Evaluate contract progress based on runStats and mark complete if goal reached.
+function finalizeContractOnRunEnd() {
+  const c = getContract();
+  if (!c || contractCompleted) return;
+  let progress = 0;
+  switch (c.track) {
+    case 'chains': progress = runStats.chains; break;
+    case 'distNoCar': progress = runStats.usedCar ? 0 : runStats.dist; break;
+    case 'framesNoUpgrade': progress = runStats.framesNoUpgrade; break;
+    case 'cashouts': progress = runStats.cashouts; break;
+    case 'k9Kills': progress = runStats.k9Kills; break;
+    case 'framesNoHit': progress = runStats.maxFramesNoHit || 0; break;
+    case 'cash': progress = runStats.cash; break;
+    case 'dist': progress = runStats.dist; break;
+  }
+  if (progress > contractProgress) contractProgress = progress;
+  const goal = getContractGoal(c);
+  if (progress >= goal && !contractCompleted) {
+    contractCompleted = true;
+    contractBannerTime = 180;
+    creditContractReward();
+  }
+  saveContractData();
 }
 
 function updateScoreUI() {
@@ -2746,20 +3125,45 @@ function drawCarShield(p, walkOffset) {
 }
 
 function drawBullets() {
+  // Sniper warning laser
+  if (sniperWarning) {
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.4 * Math.abs(Math.sin(frameCount * 0.5));
+    ctx.strokeStyle = '#ff0040';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(canvas.width, sniperWarning.y);
+    ctx.lineTo(0, sniperWarning.y);
+    ctx.stroke();
+    ctx.restore();
+  }
   for (const b of bullets) {
     ctx.save();
-    ctx.fillStyle = '#ffdd44';
-    ctx.shadowColor = '#ffaa00';
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Tracer trail
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = '#ff8800';
-    ctx.beginPath();
-    ctx.ellipse(b.x - 4, b.y + b.h / 2, 4, b.h / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
+    if (b.sniper) {
+      // Red sniper tracer
+      ctx.fillStyle = '#ff0030';
+      ctx.shadowColor = '#ff2255';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.ellipse(b.x, b.y, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ff4466';
+      ctx.fillRect(b.x, b.y - 1, 22, 2);
+    } else {
+      ctx.fillStyle = '#ffdd44';
+      ctx.shadowColor = '#ffaa00';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.ellipse(b.x + (b.w || 6) / 2, b.y + (b.h || 6) / 2, (b.w || 6) / 2, (b.h || 6) / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Tracer trail
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = '#ff8800';
+      ctx.beginPath();
+      ctx.ellipse(b.x - 4, b.y + (b.h || 6) / 2, 4, (b.h || 6) / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 }
@@ -3240,21 +3644,21 @@ let blockFrameCount = 0;
 
 function getBlockLayout() {
   const w = canvas.width, h = canvas.height;
-  const streetY = h * 0.68; // moved up significantly
+  const streetY = h * 0.68;
 
-  // 3 buildings side by side
-  const gap = Math.min(10, w * 0.02);
-  const bldgW = Math.min(110, (w - gap * 4) / 3);
-  const totalW = bldgW * 3 + gap * 2;
+  // 5 buildings side by side (tighter)
+  const gap = Math.min(5, w * 0.012);
+  const count = 5;
+  const bldgW = Math.floor((w - gap * (count + 1)) / count);
+  const totalW = bldgW * count + gap * (count - 1);
   const startX = (w - totalW) / 2;
 
-  const keys = ['trapHouse', 'garage', 'clothing'];
-  const baseHeights = [0.32, 0.22, 0.3]; // trap house tall, chop shop low/wide, nightclub medium
+  const keys = ['trapHouse', 'garage', 'clothing', 'stashHouse', 'vault'];
+  const baseHeights = [0.32, 0.22, 0.3, 0.26, 0.28];
   const buildings = [];
-  for (let i = 0; i < 3; i++) {
-    const lvl = buildingLevels[keys[i]];
-    const maxLvl = BUILDINGS[keys[i]].levels.length - 1;
-    const growFactor = 0.08 * lvl;
+  for (let i = 0; i < count; i++) {
+    const lvl = buildingLevels[keys[i]] || 0;
+    const growFactor = 0.05 * lvl;
     const bH = Math.floor(h * (baseHeights[i] + growFactor));
     buildings.push({
       x: startX + i * (bldgW + gap),
@@ -3265,13 +3669,51 @@ function getBlockLayout() {
     });
   }
 
-  // START RUN button - well above bottom
   const btnW = Math.min(200, w * 0.5);
   const btnH = 44;
   const btnX = (w - btnW) / 2;
   const btnY = streetY + 10;
 
-  return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH } };
+  return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH }, count };
+}
+
+function drawDailyContract(w, y) {
+  rollDailyContract();
+  const c = getContract();
+  if (!c) return;
+  const goal = getContractGoal(c);
+  const done = contractCompleted;
+  const barW = Math.min(300, w * 0.82);
+  const barH = 38;
+  const barX = (w - barW) / 2;
+  const barY = y;
+  ctx.save();
+  ctx.fillStyle = done ? 'rgba(0,230,118,0.15)' : 'rgba(255,215,0,0.1)';
+  ctx.strokeStyle = done ? '#00e676' : '#ffd700';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = done ? '#00e676' : '#ffd700';
+  ctx.font = 'bold ' + Math.min(10, w * 0.028) + 'px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText((done ? '✓ CONTRACT COMPLETE' : 'DAILY CONTRACT') + '  •  +' + c.reward + ' ⛓️', barX + 8, barY + 13);
+
+  ctx.fillStyle = '#ddd';
+  ctx.font = Math.min(11, w * 0.028) + 'px Arial';
+  ctx.fillText(c.desc, barX + 8, barY + 28);
+
+  // Progress dot
+  if (!done && goal > 0) {
+    const pct = Math.min(1, (contractProgress || 0) / goal);
+    ctx.fillStyle = 'rgba(255,215,0,0.25)';
+    ctx.beginPath();
+    ctx.roundRect(barX, barY + barH - 3, barW * pct, 3, 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function drawBlock() {
@@ -3300,15 +3742,33 @@ function drawBlock() {
 
   // Title + chains at top
   ctx.fillStyle = '#ffd700';
-  ctx.font = 'bold ' + Math.min(22, w * 0.055) + 'px Arial Black, Impact, sans-serif';
+  ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
   ctx.textAlign = 'center';
   ctx.shadowColor = '#ffd700';
   ctx.shadowBlur = 10;
-  ctx.fillText('YOUR BLOCK', w / 2, 24);
+  ctx.fillText('YOUR BLOCK', w / 2, 22);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold ' + Math.min(15, w * 0.038) + 'px Arial';
-  ctx.fillText('Saved Chains: ' + savedChains, w / 2, 44);
+  ctx.font = 'bold ' + Math.min(14, w * 0.036) + 'px Arial';
+  ctx.fillText('Saved Chains: ' + savedChains, w / 2, 40);
+
+  // Daily contract banner
+  drawDailyContract(w, 52);
+
+  // Vault interest claimed notice
+  if (vaultInterestNotice > 0) {
+    vaultInterestNotice--;
+    const alpha = Math.min(1, vaultInterestNotice / 60);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold ' + Math.min(13, w * 0.034) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 8;
+    ctx.fillText('💰 Vault earned +' + vaultInterestNoticeAmt + ' chains while you were away', w / 2, 102);
+    ctx.restore();
+  }
 
   const layout = getBlockLayout();
 
@@ -3329,27 +3789,40 @@ function drawBlock() {
   ctx.setLineDash([]);
 
   // Draw each themed building
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < layout.count; i++) {
     const b = layout.buildings[i];
     const key = b.key;
-    const lvl = buildingLevels[key];
+    const lvl = buildingLevels[key] || 0;
     const maxLvl = BUILDINGS[key].levels.length - 1;
     const selected = blockSelectedBuilding === i;
 
     if (key === 'trapHouse') drawTrapHouse(b, lvl, selected, layout.streetY);
     else if (key === 'garage') drawChopShop(b, lvl, selected, layout.streetY);
-    else drawNightclub(b, lvl, selected, layout.streetY);
+    else if (key === 'clothing') drawNightclub(b, lvl, selected, layout.streetY);
+    else if (key === 'stashHouse') drawStashHouse(b, lvl, selected, layout.streetY);
+    else if (key === 'vault') drawVaultBuilding(b, lvl, selected, layout.streetY);
 
     // Building name above
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold ' + Math.min(10, b.w * 0.095) + 'px Arial';
+    ctx.font = 'bold ' + Math.min(9, b.w * 0.14) + 'px Arial';
     ctx.textAlign = 'center';
     ctx.fillText(BUILDINGS[key].name, b.x + b.w / 2, b.y - 14);
 
     // Level indicator
     ctx.fillStyle = lvl >= maxLvl ? '#ffd700' : '#aaa';
-    ctx.font = Math.min(9, b.w * 0.08) + 'px Arial';
+    ctx.font = Math.min(8, b.w * 0.12) + 'px Arial';
     ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 4);
+
+    // Vault glow if interest is pending
+    if (key === 'vault' && vaultPendingInterest() > 0.5) {
+      ctx.save();
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 12 + 6 * Math.abs(Math.sin(blockFrameCount * 0.08));
+      ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+      ctx.restore();
+    }
   }
 
   // Player
@@ -3357,9 +3830,11 @@ function drawBlock() {
   const pY = layout.streetY - 50;
   drawBlockPlayer(pX, pY);
 
-  // Upgrade panel
+  // Upgrade / vault panel
   if (blockSelectedBuilding >= 0) {
-    drawUpgradePanel(layout);
+    const sel = layout.buildings[blockSelectedBuilding];
+    if (sel.key === 'vault') drawVaultPanel(layout);
+    else drawUpgradePanel(layout);
   }
 
   // START RUN button
@@ -3676,6 +4151,326 @@ function drawNightclub(b, lvl, selected, streetY) {
   }
 }
 
+function drawStashHouse(b, lvl, selected, streetY) {
+  // Small brick house with steel door and barred windows
+  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+  bGrad.addColorStop(0, '#6b3024');
+  bGrad.addColorStop(0.5, '#7a3a2a');
+  bGrad.addColorStop(1, '#4a1f18');
+  ctx.fillStyle = bGrad;
+  ctx.beginPath();
+  ctx.roundRect(b.x, b.y, b.w, b.h, [4, 4, 0, 0]);
+  ctx.fill();
+
+  // Brick pattern
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1;
+  const brickH = 8;
+  for (let y = b.y + brickH; y < b.y + b.h; y += brickH) {
+    ctx.beginPath();
+    ctx.moveTo(b.x, y);
+    ctx.lineTo(b.x + b.w, y);
+    ctx.stroke();
+  }
+
+  // Flat roof cap
+  ctx.fillStyle = '#2a120c';
+  ctx.fillRect(b.x - 2, b.y - 4, b.w + 4, 5);
+
+  // Selection glow
+  if (selected) {
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 12;
+    ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+    ctx.shadowBlur = 0;
+  }
+
+  // Steel door — thicker at higher levels
+  const doorW = Math.min(18, b.w * 0.3);
+  const doorH = Math.min(28, b.h * 0.42);
+  const doorX = b.x + b.w / 2 - doorW / 2;
+  const doorY = b.y + b.h - doorH - 2;
+  const doorShade = lvl >= 3 ? '#3a3a44' : lvl >= 1 ? '#4a4a55' : '#666';
+  ctx.fillStyle = doorShade;
+  ctx.fillRect(doorX, doorY, doorW, doorH);
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(doorX, doorY, doorW, doorH);
+  // Bolts on door (more at higher levels)
+  ctx.fillStyle = '#888';
+  const bolts = Math.min(6, 2 + lvl);
+  for (let i = 0; i < bolts; i++) {
+    ctx.beginPath();
+    ctx.arc(doorX + 2 + (doorW - 4) * (i / Math.max(1, bolts - 1)), doorY + 2, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Barred window with cash sack visible (more sacks at higher levels)
+  const winW = Math.min(20, b.w * 0.38);
+  const winH = 12;
+  const winX = b.x + 4;
+  const winY = b.y + 8;
+  ctx.fillStyle = '#111';
+  ctx.fillRect(winX, winY, winW, winH);
+  // Window bars
+  ctx.strokeStyle = '#999';
+  ctx.lineWidth = 1;
+  for (let v = 0; v < 3; v++) {
+    ctx.beginPath();
+    ctx.moveTo(winX + (v + 1) * winW / 4, winY);
+    ctx.lineTo(winX + (v + 1) * winW / 4, winY + winH);
+    ctx.stroke();
+  }
+  // Cash sacks
+  if (lvl >= 1) {
+    ctx.fillStyle = '#c9a670';
+    const sackCount = Math.min(3, lvl);
+    for (let s = 0; s < sackCount; s++) {
+      const sx = winX + 2 + s * 5;
+      ctx.beginPath();
+      ctx.ellipse(sx, winY + winH - 3, 2, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // $ on sacks
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 5px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('$', winX + 1, winY + winH - 2);
+  }
+
+  // Small dollar sign above door
+  if (lvl >= 2) {
+    ctx.save();
+    ctx.fillStyle = '#ffd700';
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 6;
+    ctx.font = 'bold 10px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('$', doorX + doorW / 2, doorY - 2);
+    ctx.restore();
+  }
+}
+
+function drawVaultBuilding(b, lvl, selected, streetY) {
+  // Bank-like look: stone exterior, columns, gold arch
+  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+  bGrad.addColorStop(0, '#3c3c4a');
+  bGrad.addColorStop(1, '#252530');
+  ctx.fillStyle = bGrad;
+  ctx.fillRect(b.x, b.y + 6, b.w, b.h - 6);
+
+  // Pediment / triangular top
+  ctx.fillStyle = '#55556a';
+  ctx.beginPath();
+  ctx.moveTo(b.x - 2, b.y + 6);
+  ctx.lineTo(b.x + b.w / 2, b.y - 6);
+  ctx.lineTo(b.x + b.w + 2, b.y + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Selection glow
+  if (selected) {
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 12;
+    ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+    ctx.shadowBlur = 0;
+  }
+
+  // Columns
+  const colCount = 3;
+  const colW = Math.max(3, b.w * 0.09);
+  const colSpacing = (b.w - colW * colCount) / (colCount + 1);
+  ctx.fillStyle = '#d8d4c8';
+  for (let c = 0; c < colCount; c++) {
+    const cx = b.x + colSpacing + c * (colW + colSpacing);
+    ctx.fillRect(cx, b.y + 10, colW, b.h - 26);
+    // Cap
+    ctx.fillRect(cx - 1, b.y + 8, colW + 2, 3);
+    ctx.fillRect(cx - 1, b.y + b.h - 16, colW + 2, 3);
+  }
+
+  // Big vault door (circle) - gold at higher levels
+  const cx = b.x + b.w / 2;
+  const vaultR = Math.min(b.w * 0.22, b.h * 0.2);
+  const vaultY = b.y + b.h - vaultR - 6;
+  const doorColor = lvl >= 3 ? '#ffd700' : lvl >= 1 ? '#cccccc' : '#666';
+  ctx.fillStyle = doorColor;
+  ctx.beginPath();
+  ctx.arc(cx, vaultY, vaultR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Spokes (only if owned)
+  if (lvl >= 1) {
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    for (let s = 0; s < 4; s++) {
+      const a = s * Math.PI / 4;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * vaultR * 0.3, vaultY + Math.sin(a) * vaultR * 0.3);
+      ctx.lineTo(cx + Math.cos(a) * vaultR * 0.9, vaultY + Math.sin(a) * vaultR * 0.9);
+      ctx.stroke();
+    }
+    // Handle
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(cx, vaultY, vaultR * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Padlock overlay for locked vault
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - 3, vaultY - 2, 6, 6);
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, vaultY - 3, 3, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  // "BANK" sign on pediment
+  if (lvl >= 1) {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold ' + Math.min(7, b.w * 0.12) + 'px Arial Black, Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('BANK', cx, b.y + 4);
+  }
+}
+
+// Vault panel layout — shared between draw + click handler
+function getVaultPanelLayout() {
+  const w = canvas.width, h = canvas.height;
+  const panelW = Math.min(300, w * 0.85);
+  const panelH = 210;
+  const panelX = (w - panelW) / 2;
+  const panelY = h * 0.1;
+  const btnH = 28;
+  const btnGap = 6;
+  const btnRowY = panelY + 98;
+  const btnW = (panelW - 16 - btnGap * 3) / 4;
+  return {
+    panelX, panelY, panelW, panelH,
+    depositBtn: { x: panelX + 8, y: btnRowY, w: btnW, h: btnH },
+    depositMaxBtn: { x: panelX + 8 + (btnW + btnGap), y: btnRowY, w: btnW, h: btnH },
+    withdrawBtn: { x: panelX + 8 + (btnW + btnGap) * 2, y: btnRowY, w: btnW, h: btnH },
+    withdrawMaxBtn: { x: panelX + 8 + (btnW + btnGap) * 3, y: btnRowY, w: btnW, h: btnH },
+    upgradeBtn: { x: panelX + 20, y: panelY + 150, w: panelW - 40, h: 30 },
+    closeBtn: { x: panelX + panelW - 28, y: panelY + 4, w: 24, h: 24 },
+  };
+}
+
+function drawVaultPanel(layout) {
+  const w = canvas.width, h = canvas.height;
+  const lvl = buildingLevels.vault;
+  const maxLvl = BUILDINGS.vault.levels.length - 1;
+  const lvData = BUILDINGS.vault.levels[lvl];
+  const eff = lvData.effect;
+  const vl = getVaultPanelLayout();
+
+  // Bg
+  ctx.fillStyle = 'rgba(0,0,0,0.92)';
+  ctx.beginPath();
+  ctx.roundRect(vl.panelX, vl.panelY, vl.panelW, vl.panelH, 14);
+  ctx.fill();
+  ctx.strokeStyle = '#ffd700';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(vl.panelX, vl.panelY, vl.panelW, vl.panelH, 14);
+  ctx.stroke();
+
+  // Title
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(18, w * 0.05) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('THE VAULT', w / 2, vl.panelY + 26);
+
+  if (!eff) {
+    // Locked
+    ctx.fillStyle = '#aaa';
+    ctx.font = Math.min(13, w * 0.033) + 'px Arial';
+    ctx.fillText('Locked. Unlock to earn idle interest', w / 2, vl.panelY + 56);
+    ctx.fillText('on your chains between runs.', w / 2, vl.panelY + 74);
+
+    // Upgrade-to-unlock button
+    const nxt = BUILDINGS.vault.levels[1];
+    const canAfford = savedChains >= nxt.cost;
+    ctx.fillStyle = canAfford ? '#00e676' : '#555';
+    ctx.beginPath();
+    ctx.roundRect(vl.upgradeBtn.x, vl.upgradeBtn.y, vl.upgradeBtn.w, vl.upgradeBtn.h, 15);
+    ctx.fill();
+    ctx.fillStyle = canAfford ? '#000' : '#888';
+    ctx.font = 'bold ' + Math.min(14, w * 0.035) + 'px Arial';
+    ctx.fillText('UNLOCK VAULT (' + nxt.cost + ' chains)', w / 2, vl.upgradeBtn.y + vl.upgradeBtn.h / 2 + 5);
+  } else {
+    // Balance + pending interest
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold ' + Math.min(26, w * 0.065) + 'px Arial Black, Impact, sans-serif';
+    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 8;
+    ctx.fillText(Math.floor(vaultBalance) + ' / ' + eff.cap + ' ⛓️', w / 2, vl.panelY + 58);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#aaa';
+    ctx.font = Math.min(11, w * 0.029) + 'px Arial';
+    ctx.fillText(Math.round(eff.interest * 100) + '%/hr  •  ' + Math.round(eff.raid * 100) + '% raid on death  •  cap ' + eff.cap,
+      w / 2, vl.panelY + 76);
+
+    // Deposit / Withdraw buttons
+    const canDeposit50 = savedChains >= 50;
+    const canDeposit10 = savedChains >= 10;
+    ctx.font = 'bold ' + Math.min(12, w * 0.03) + 'px Arial';
+    drawVaultButton(vl.depositBtn, '+10', canDeposit10);
+    drawVaultButton(vl.depositMaxBtn, 'DEPOSIT MAX', savedChains > 0 && vaultBalance < eff.cap);
+    drawVaultButton(vl.withdrawBtn, '-10', vaultBalance >= 10);
+    drawVaultButton(vl.withdrawMaxBtn, 'WITHDRAW MAX', vaultBalance > 0);
+
+    // Upgrade button
+    if (lvl < maxLvl) {
+      const nxt = BUILDINGS.vault.levels[lvl + 1];
+      const canAfford = savedChains >= nxt.cost;
+      ctx.fillStyle = canAfford ? '#00e676' : '#555';
+      ctx.beginPath();
+      ctx.roundRect(vl.upgradeBtn.x, vl.upgradeBtn.y, vl.upgradeBtn.w, vl.upgradeBtn.h, 15);
+      ctx.fill();
+      ctx.fillStyle = canAfford ? '#000' : '#888';
+      ctx.font = 'bold ' + Math.min(13, w * 0.033) + 'px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('UPGRADE → ' + nxt.desc + '  (' + nxt.cost + ')', w / 2, vl.upgradeBtn.y + vl.upgradeBtn.h / 2 + 4);
+    } else {
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold ' + Math.min(14, w * 0.035) + 'px Arial';
+      ctx.fillText('VAULT MAXED', w / 2, vl.upgradeBtn.y + vl.upgradeBtn.h / 2 + 4);
+    }
+  }
+
+  // Close X
+  ctx.fillStyle = '#888';
+  ctx.font = 'bold 18px Arial';
+  ctx.textAlign = 'right';
+  ctx.fillText('X', vl.panelX + vl.panelW - 10, vl.panelY + 22);
+
+  // Expose for hit testing
+  layout.vaultPanel = vl;
+}
+
+function drawVaultButton(b, label, enabled) {
+  ctx.save();
+  ctx.fillStyle = enabled ? 'rgba(255,215,0,0.18)' : 'rgba(80,80,80,0.2)';
+  ctx.strokeStyle = enabled ? '#ffd700' : '#555';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(b.x, b.y, b.w, b.h, 5);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = enabled ? '#ffd700' : '#777';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2 + 4);
+  ctx.restore();
+}
+
 function drawBlockPlayer(px, py) {
   // Simplified player standing idle on the block
   const p = player;
@@ -3829,13 +4624,87 @@ function handleBlockClick(clientX, clientY) {
 
   const layout = getBlockLayout();
 
-  // If upgrade panel is open
+  // If any panel is open
   if (blockSelectedBuilding >= 0) {
-    // Check close button
-    if (layout.closeBtn) {
-      // Recalculate panel to get buttons
-      drawUpgradePanelHitTest(layout);
+    const selKey = layout.buildings[blockSelectedBuilding].key;
+
+    // --- Vault panel ---
+    if (selKey === 'vault') {
+      const vl = getVaultPanelLayout();
+      // Close X
+      if (cx >= vl.closeBtn.x && cx <= vl.closeBtn.x + vl.closeBtn.w && cy >= vl.closeBtn.y && cy <= vl.closeBtn.y + vl.closeBtn.h) {
+        blockSelectedBuilding = -1; return;
+      }
+      const lvl = buildingLevels.vault;
+      const maxLvl = BUILDINGS.vault.levels.length - 1;
+      const eff = BUILDINGS.vault.levels[lvl].effect;
+
+      // Upgrade / unlock
+      if (lvl < maxLvl) {
+        const nxt = BUILDINGS.vault.levels[lvl + 1];
+        if (cx >= vl.upgradeBtn.x && cx <= vl.upgradeBtn.x + vl.upgradeBtn.w && cy >= vl.upgradeBtn.y && cy <= vl.upgradeBtn.y + vl.upgradeBtn.h) {
+          if (savedChains >= nxt.cost) {
+            savedChains -= nxt.cost;
+            buildingLevels.vault++;
+            if (buildingLevels.vault === 1) vaultLastCheck = Date.now();
+            saveBlockData();
+            if (audioCtx) playBuySound();
+          } else if (audioCtx) playDenySound();
+          return;
+        }
+      }
+
+      if (eff) {
+        // Deposit 10
+        if (cx >= vl.depositBtn.x && cx <= vl.depositBtn.x + vl.depositBtn.w && cy >= vl.depositBtn.y && cy <= vl.depositBtn.y + vl.depositBtn.h) {
+          if (savedChains >= 10 && vaultBalance < eff.cap) {
+            const dep = Math.min(10, eff.cap - vaultBalance);
+            savedChains -= dep; vaultBalance += dep; vaultLastCheck = Date.now();
+            saveBlockData();
+            if (audioCtx) playBuySound();
+          } else if (audioCtx) playDenySound();
+          return;
+        }
+        // Deposit MAX
+        if (cx >= vl.depositMaxBtn.x && cx <= vl.depositMaxBtn.x + vl.depositMaxBtn.w && cy >= vl.depositMaxBtn.y && cy <= vl.depositMaxBtn.y + vl.depositMaxBtn.h) {
+          if (savedChains > 0 && vaultBalance < eff.cap) {
+            const dep = Math.min(savedChains, eff.cap - vaultBalance);
+            savedChains -= dep; vaultBalance += dep; vaultLastCheck = Date.now();
+            saveBlockData();
+            if (audioCtx) playBuySound();
+          } else if (audioCtx) playDenySound();
+          return;
+        }
+        // Withdraw 10
+        if (cx >= vl.withdrawBtn.x && cx <= vl.withdrawBtn.x + vl.withdrawBtn.w && cy >= vl.withdrawBtn.y && cy <= vl.withdrawBtn.y + vl.withdrawBtn.h) {
+          if (vaultBalance >= 10) {
+            const wd = Math.min(10, Math.floor(vaultBalance));
+            vaultBalance -= wd; savedChains += wd; vaultLastCheck = Date.now();
+            saveBlockData();
+            if (audioCtx) playBuySound();
+          } else if (audioCtx) playDenySound();
+          return;
+        }
+        // Withdraw MAX
+        if (cx >= vl.withdrawMaxBtn.x && cx <= vl.withdrawMaxBtn.x + vl.withdrawMaxBtn.w && cy >= vl.withdrawMaxBtn.y && cy <= vl.withdrawMaxBtn.y + vl.withdrawMaxBtn.h) {
+          if (vaultBalance > 0) {
+            const wd = Math.floor(vaultBalance);
+            vaultBalance -= wd; savedChains += wd; vaultLastCheck = Date.now();
+            saveBlockData();
+            if (audioCtx) playBuySound();
+          } else if (audioCtx) playDenySound();
+          return;
+        }
+      }
+
+      // Click outside panel closes
+      if (cx < vl.panelX || cx > vl.panelX + vl.panelW || cy < vl.panelY || cy > vl.panelY + vl.panelH) {
+        blockSelectedBuilding = -1;
+      }
+      return;
     }
+
+    // --- Standard upgrade panel ---
     const panelW = Math.min(260, canvas.width * 0.7);
     const panelH = 160;
     const panelX = (canvas.width - panelW) / 2;
@@ -3887,10 +4756,14 @@ function handleBlockClick(clientX, clientY) {
   }
 
   // Check building clicks
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < layout.count; i++) {
     const b = layout.buildings[i];
     if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
       blockSelectedBuilding = i;
+      // Opening the Vault claims pending interest
+      if (b.key === 'vault' && buildingLevels.vault > 0) {
+        applyVaultInterest();
+      }
       return;
     }
   }
@@ -3920,9 +4793,109 @@ function gameLoop() {
   drawParticles();
   drawSpeedLines();
   drawWeaponHUD();
+  drawHeatMeter();
+  drawContractBanner();
   drawDeathScreen();
   drawShop();
   animFrame = requestAnimationFrame(gameLoop);
+}
+
+function drawHeatMeter() {
+  if (state !== STATE.PLAYING && state !== STATE.SHOP) return;
+  const w = canvas.width, h = canvas.height;
+  const mW = Math.min(150, w * 0.4);
+  const mH = 10;
+  const mX = w - mW - 10;
+  const mY = 62;
+
+  // Label
+  ctx.save();
+  ctx.textAlign = 'right';
+  ctx.font = 'bold ' + Math.min(11, w * 0.028) + 'px Arial';
+  ctx.fillStyle = heatTierColor();
+  ctx.shadowColor = heatTierColor();
+  ctx.shadowBlur = heat >= 51 ? 8 : 0;
+  ctx.fillText('🔥 ' + heatTierLabel() + ' (x' + heatChainMultiplier().toFixed(2) + ')', w - 10, mY - 2);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  // Background bar
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath();
+  ctx.roundRect(mX, mY, mW, mH, 5);
+  ctx.fill();
+
+  // Fill
+  const fillW = (heat / 100) * mW;
+  const grad = ctx.createLinearGradient(mX, mY, mX + mW, mY);
+  grad.addColorStop(0, '#00e676');
+  grad.addColorStop(0.3, '#ffcc00');
+  grad.addColorStop(0.6, '#ff6600');
+  grad.addColorStop(0.85, '#ff0000');
+  grad.addColorStop(1, '#ff00ff');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(mX, mY, fillW, mH, 5);
+  ctx.fill();
+
+  // Border
+  ctx.strokeStyle = heat >= 75 ? heatTierColor() : 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(mX, mY, mW, mH, 5);
+  ctx.stroke();
+  ctx.restore();
+
+  // Red edge pulse at 75+
+  if (heat >= 75) {
+    ctx.save();
+    const pulse = 0.15 + 0.12 * Math.abs(Math.sin(frameCount * 0.12));
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#ff0000';
+    ctx.fillRect(0, 0, w, 24);
+    ctx.fillRect(0, h - 24, w, 24);
+    ctx.fillRect(0, 0, 16, h);
+    ctx.fillRect(w - 16, 0, 16, h);
+    ctx.restore();
+  }
+  // MAX HEAT screen flash
+  if (heatFlashTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = (heatFlashTimer / 30) * 0.35;
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+}
+
+function drawContractBanner() {
+  if (contractBannerTime <= 0) return;
+  contractBannerTime--;
+  const w = canvas.width, h = canvas.height;
+  const c = getContract();
+  if (!c) return;
+  ctx.save();
+  const bY = h * 0.4;
+  const bH = 60;
+  const slide = Math.min(1, contractBannerTime / 30);
+  const alpha = contractBannerTime > 150 ? (180 - contractBannerTime) / 30 : slide;
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(0, bY, w, bH);
+  ctx.strokeStyle = '#ffd700';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, bY, w, bH);
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(20, w * 0.055) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 12;
+  ctx.fillText('CONTRACT COMPLETE', w / 2, bY + 26);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#00e676';
+  ctx.font = 'bold ' + Math.min(14, w * 0.038) + 'px Arial';
+  ctx.fillText('+' + c.reward + ' chains banked', w / 2, bY + 48);
+  ctx.restore();
 }
 
 // --- Start screen render loop ---
@@ -3935,6 +4908,8 @@ function titleLoop() {
 
 // Init high score display and title loop
 document.getElementById('high-score-display').textContent = 'Best: ' + highScore + ' chains';
+rollDailyContract();
+if (buildingLevels.vault > 0) applyVaultInterest();
 initClouds();
 spawnInitialPlatforms();
 titleLoop();
