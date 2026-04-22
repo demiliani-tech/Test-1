@@ -5,9 +5,13 @@ const ctx = canvas.getContext('2d');
 const container = document.getElementById('game-container');
 
 // --- Responsive canvas sizing ---
+let safeTop = 0, safeBottom = 0;
 function resizeCanvas() {
   canvas.width = container.clientWidth;
   canvas.height = container.clientHeight;
+  const style = getComputedStyle(document.documentElement);
+  safeTop = parseFloat(style.getPropertyValue('--safe-top')) || 0;
+  safeBottom = parseFloat(style.getPropertyValue('--safe-bottom')) || 0;
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
@@ -3773,7 +3777,7 @@ function getBlockLayout() {
   const btnW = Math.min(220, w * 0.55);
   const btnH = 48;
   const btnX = (w - btnW) / 2;
-  const btnY = h - btnH - 20;
+  const btnY = h - btnH - 20 - safeBottom;
 
   return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH }, count: keys.length, totalWidth: info.totalWidth, maxScroll: info.maxScroll };
 }
@@ -3969,11 +3973,12 @@ function drawBlock() {
   // --- Fixed HUD overlay (doesn't scroll) ---
 
   // Top gradient overlay for HUD
-  const hudGrad = ctx.createLinearGradient(0, 0, 0, 100);
+  const st = safeTop;
+  const hudGrad = ctx.createLinearGradient(0, 0, 0, st + 110);
   hudGrad.addColorStop(0, 'rgba(5,5,16,0.85)');
   hudGrad.addColorStop(1, 'rgba(5,5,16,0)');
   ctx.fillStyle = hudGrad;
-  ctx.fillRect(0, 0, w, 100);
+  ctx.fillRect(0, 0, w, st + 110);
 
   // Title
   ctx.fillStyle = '#ffd700';
@@ -3981,14 +3986,14 @@ function drawBlock() {
   ctx.textAlign = 'center';
   ctx.shadowColor = '#ffd700';
   ctx.shadowBlur = 10;
-  ctx.fillText('YOUR BLOCK', w / 2, 24);
+  ctx.fillText('YOUR BLOCK', w / 2, st + 24);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff';
   ctx.font = 'bold ' + Math.min(14, w * 0.036) + 'px Arial';
-  ctx.fillText('⛓️ ' + savedChains + ' chains', w / 2, 44);
+  ctx.fillText('⛓️ ' + savedChains + ' chains', w / 2, st + 44);
 
   // Daily contract banner
-  drawDailyContract(w, 56);
+  drawDailyContract(w, st + 56);
 
   // Vault interest claimed notice
   if (vaultInterestNotice > 0) {
@@ -4001,7 +4006,7 @@ function drawBlock() {
     ctx.textAlign = 'center';
     ctx.shadowColor = '#ffd700';
     ctx.shadowBlur = 8;
-    ctx.fillText('💰 Vault earned +' + vaultInterestNoticeAmt + ' chains while you were away', w / 2, 106);
+    ctx.fillText('💰 Vault earned +' + vaultInterestNoticeAmt + ' chains while you were away', w / 2, st + 106);
     ctx.restore();
   }
 
@@ -5049,7 +5054,7 @@ function drawHeatMeter() {
   const mW = Math.min(150, w * 0.4);
   const mH = 10;
   const mX = w - mW - 10;
-  const mY = 62;
+  const mY = 62 + safeTop;
 
   // Label
   ctx.save();
