@@ -548,6 +548,15 @@ let bullets = []; // projectiles from guns
 // --- Block / Home system (persistent) ---
 let savedChains = parseInt(localStorage.getItem('hrSavedChains') || '0');
 let blockSelectedBuilding = -1; // which building is tapped for upgrade panel
+let blockScrollX = 0;
+let blockScrollVel = 0;
+let blockTouchId = null;
+let blockTouchStartX = 0;
+let blockTouchStartY = 0;
+let blockTouchStartScroll = 0;
+let blockDragMoved = false;
+let blockLastMoveX = 0;
+let blockLastMoveTime = 0;
 
 const BUILDINGS = {
   trapHouse: {
@@ -777,9 +786,12 @@ function goToBlock() {
   document.getElementById('mobile-controls').style.display = 'none';
   stopMusic();
   stopEngineSound();
-  // Apply accumulated Vault interest on return
   if (buildingLevels.vault > 0) applyVaultInterest();
   rollDailyContract();
+  // Center scroll on the block
+  const info = getBlockWorldInfo();
+  blockScrollX = Math.max(0, (info.totalWidth - canvas.width) / 2);
+  blockScrollVel = 0;
   if (animFrame) cancelAnimationFrame(animFrame);
   blockLoop();
 }
@@ -809,14 +821,96 @@ document.addEventListener('keyup', e => {
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
-  if (state === STATE.BLOCK) { handleBlockClick(e.touches[0].clientX, e.touches[0].clientY); return; }
+  if (state === STATE.BLOCK) {
+    const t = e.touches[0];
+    blockTouchId = t.identifier;
+    blockTouchStartX = t.clientX;
+    blockTouchStartY = t.clientY;
+    blockTouchStartScroll = blockScrollX;
+    blockDragMoved = false;
+    blockLastMoveX = t.clientX;
+    blockLastMoveTime = Date.now();
+    blockScrollVel = 0;
+    return;
+  }
   if (state === STATE.SHOP) { handleShopClick(e.touches[0].clientX, e.touches[0].clientY); return; }
   doJump();
 }, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  if (state === STATE.BLOCK && blockTouchId !== null) {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== blockTouchId) continue;
+      const dx = blockTouchStartX - t.clientX;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaledDx = dx * scaleX;
+      if (Math.abs(dx) > 8) blockDragMoved = true;
+      if (blockDragMoved) {
+        const info = getBlockWorldInfo();
+        blockScrollX = Math.max(0, Math.min(info.maxScroll, blockTouchStartScroll + scaledDx));
+        const now = Date.now();
+        const dt = now - blockLastMoveTime;
+        if (dt > 0) blockScrollVel = (blockLastMoveX - t.clientX) * scaleX / dt * 16;
+        blockLastMoveX = t.clientX;
+        blockLastMoveTime = now;
+      }
+    }
+  }
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  if (state === STATE.BLOCK && blockTouchId !== null) {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier !== blockTouchId) continue;
+      if (!blockDragMoved) {
+        handleBlockClick(blockTouchStartX, blockTouchStartY);
+      }
+      blockTouchId = null;
+    }
+    return;
+  }
+}, { passive: false });
 canvas.addEventListener('mousedown', e => {
-  if (state === STATE.BLOCK) { handleBlockClick(e.clientX, e.clientY); return; }
+  if (state === STATE.BLOCK) {
+    blockTouchStartX = e.clientX;
+    blockTouchStartY = e.clientY;
+    blockTouchStartScroll = blockScrollX;
+    blockDragMoved = false;
+    blockLastMoveX = e.clientX;
+    blockLastMoveTime = Date.now();
+    blockScrollVel = 0;
+    blockTouchId = 'mouse';
+    return;
+  }
   if (state === STATE.SHOP) { handleShopClick(e.clientX, e.clientY); return; }
   doJump();
+});
+canvas.addEventListener('mousemove', e => {
+  if (state === STATE.BLOCK && blockTouchId === 'mouse') {
+    const dx = blockTouchStartX - e.clientX;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaledDx = dx * scaleX;
+    if (Math.abs(dx) > 5) blockDragMoved = true;
+    if (blockDragMoved) {
+      const info = getBlockWorldInfo();
+      blockScrollX = Math.max(0, Math.min(info.maxScroll, blockTouchStartScroll + scaledDx));
+      const now = Date.now();
+      const dt = now - blockLastMoveTime;
+      if (dt > 0) blockScrollVel = (blockLastMoveX - e.clientX) * scaleX / dt * 16;
+      blockLastMoveX = e.clientX;
+      blockLastMoveTime = now;
+    }
+  }
+});
+canvas.addEventListener('mouseup', e => {
+  if (state === STATE.BLOCK && blockTouchId === 'mouse') {
+    if (!blockDragMoved) {
+      handleBlockClick(e.clientX, e.clientY);
+    }
+    blockTouchId = null;
+  }
 });
 
 document.getElementById('jump-btn').addEventListener('touchstart', e => {
@@ -3642,39 +3736,46 @@ function drawSpeedLines() {
 // --- Block / Home Screen ---
 let blockFrameCount = 0;
 
+function getBlockWorldInfo() {
+  const w = canvas.width, h = canvas.height;
+  const keys = ['trapHouse', 'garage', 'clothing', 'stashHouse', 'vault'];
+  const bldgW = Math.max(100, Math.min(140, w * 0.32));
+  const gap = Math.max(24, bldgW * 0.22);
+  const padding = Math.max(30, w * 0.08);
+  const totalWidth = padding * 2 + keys.length * bldgW + (keys.length - 1) * gap;
+  const maxScroll = Math.max(0, totalWidth - w);
+  return { keys, bldgW, gap, padding, totalWidth, maxScroll };
+}
+
 function getBlockLayout() {
   const w = canvas.width, h = canvas.height;
-  const streetY = h * 0.68;
+  const streetY = h * 0.72;
+  const info = getBlockWorldInfo();
+  const { keys, bldgW, gap, padding } = info;
 
-  // 5 buildings side by side (tighter)
-  const gap = Math.min(5, w * 0.012);
-  const count = 5;
-  const bldgW = Math.floor((w - gap * (count + 1)) / count);
-  const totalW = bldgW * count + gap * (count - 1);
-  const startX = (w - totalW) / 2;
-
-  const keys = ['trapHouse', 'garage', 'clothing', 'stashHouse', 'vault'];
-  const baseHeights = [0.32, 0.22, 0.3, 0.26, 0.28];
+  const baseHeights = [0.30, 0.22, 0.28, 0.24, 0.26];
   const buildings = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < keys.length; i++) {
     const lvl = buildingLevels[keys[i]] || 0;
-    const growFactor = 0.05 * lvl;
+    const growFactor = 0.04 * lvl;
     const bH = Math.floor(h * (baseHeights[i] + growFactor));
+    const worldX = padding + i * (bldgW + gap);
     buildings.push({
-      x: startX + i * (bldgW + gap),
+      x: worldX - blockScrollX,
       y: streetY - bH,
       w: bldgW,
       h: bH,
       key: keys[i],
+      worldX: worldX,
     });
   }
 
-  const btnW = Math.min(200, w * 0.5);
-  const btnH = 44;
+  const btnW = Math.min(220, w * 0.55);
+  const btnH = 48;
   const btnX = (w - btnW) / 2;
-  const btnY = streetY + 10;
+  const btnY = h - btnH - 20;
 
-  return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH }, count };
+  return { buildings, streetY, btn: { x: btnX, y: btnY, w: btnW, h: btnH }, count: keys.length, totalWidth: info.totalWidth, maxScroll: info.maxScroll };
 }
 
 function drawDailyContract(w, y) {
@@ -3720,77 +3821,112 @@ function drawBlock() {
   const w = canvas.width, h = canvas.height;
   blockFrameCount++;
 
-  // Night sky gradient
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.5);
+  // Night sky gradient (fixed)
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.55);
   skyGrad.addColorStop(0, '#050510');
-  skyGrad.addColorStop(1, '#141430');
+  skyGrad.addColorStop(0.6, '#141430');
+  skyGrad.addColorStop(1, '#1a1a2e');
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, w, h);
 
-  // Stars
+  // Stars (fixed, parallax-light)
   ctx.fillStyle = '#fff';
-  for (let i = 0; i < 25; i++) {
-    const sx = (i * 137.5 + 50) % w;
-    const sy = (i * 89.3 + 10) % (h * 0.3);
+  for (let i = 0; i < 35; i++) {
+    const sx = ((i * 137.5 + 50) - blockScrollX * 0.02) % w;
+    const sy = (i * 89.3 + 10) % (h * 0.28);
     const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(blockFrameCount * 0.02 + i));
-    ctx.globalAlpha = twinkle * 0.8;
+    ctx.globalAlpha = twinkle * 0.7;
     ctx.beginPath();
-    ctx.arc(sx, sy, 1 + (i % 3 === 0 ? 1 : 0), 0, Math.PI * 2);
+    ctx.arc(sx < 0 ? sx + w : sx, sy, 1 + (i % 3 === 0 ? 1 : 0), 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
 
-  // Title + chains at top
-  ctx.fillStyle = '#ffd700';
-  ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.shadowColor = '#ffd700';
-  ctx.shadowBlur = 10;
-  ctx.fillText('YOUR BLOCK', w / 2, 22);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold ' + Math.min(14, w * 0.036) + 'px Arial';
-  ctx.fillText('Saved Chains: ' + savedChains, w / 2, 40);
-
-  // Daily contract banner
-  drawDailyContract(w, 52);
-
-  // Vault interest claimed notice
-  if (vaultInterestNotice > 0) {
-    vaultInterestNotice--;
-    const alpha = Math.min(1, vaultInterestNotice / 60);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold ' + Math.min(13, w * 0.034) + 'px Arial';
-    ctx.textAlign = 'center';
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 8;
-    ctx.fillText('💰 Vault earned +' + vaultInterestNoticeAmt + ' chains while you were away', w / 2, 102);
-    ctx.restore();
-  }
+  // Moon (fixed)
+  const moonX = w * 0.82;
+  const moonY = h * 0.08;
+  ctx.fillStyle = '#e8e4d4';
+  ctx.beginPath();
+  ctx.arc(moonX, moonY, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#050510';
+  ctx.beginPath();
+  ctx.arc(moonX + 5, moonY - 3, 12, 0, Math.PI * 2);
+  ctx.fill();
 
   const layout = getBlockLayout();
 
-  // Street
-  ctx.fillStyle = '#2a2a2a';
-  ctx.fillRect(0, layout.streetY, w, h - layout.streetY);
+  // Background skyline (slow parallax)
+  drawBlockSkyline(w, h, layout.streetY);
+
+  // Street + sidewalk (scrolls with buildings)
+  const drawLeft = -blockScrollX;
+  const drawWidth = layout.totalWidth;
+
+  // Street surface
+  ctx.fillStyle = '#222';
+  ctx.fillRect(drawLeft, layout.streetY, drawWidth, h - layout.streetY);
+  // Curb
+  ctx.fillStyle = '#666';
+  ctx.fillRect(drawLeft, layout.streetY - 4, drawWidth, 4);
   // Sidewalk
-  ctx.fillStyle = '#555';
-  ctx.fillRect(0, layout.streetY - 6, w, 6);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(drawLeft, layout.streetY - 18, drawWidth, 14);
+  // Sidewalk cracks
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 0.5;
+  for (let sx = drawLeft; sx < drawLeft + drawWidth; sx += 60) {
+    if (sx + 60 < 0 || sx > w) continue;
+    ctx.beginPath();
+    ctx.moveTo(sx, layout.streetY - 18);
+    ctx.lineTo(sx, layout.streetY - 4);
+    ctx.stroke();
+  }
   // Road markings
-  ctx.strokeStyle = '#ffd700';
+  ctx.strokeStyle = 'rgba(255,215,0,0.5)';
   ctx.lineWidth = 2;
   ctx.setLineDash([18, 14]);
+  const roadCenterY = layout.streetY + (h - layout.streetY) * 0.55;
   ctx.beginPath();
-  ctx.moveTo(0, layout.streetY + (h - layout.streetY) * 0.6);
-  ctx.lineTo(w, layout.streetY + (h - layout.streetY) * 0.6);
+  ctx.moveTo(0, roadCenterY);
+  ctx.lineTo(w, roadCenterY);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Draw each themed building
+  // Street lamps between buildings
+  for (let i = 0; i < layout.count - 1; i++) {
+    const b1 = layout.buildings[i];
+    const b2 = layout.buildings[i + 1];
+    const lampX = b1.x + b1.w + (b2.x - b1.x - b1.w) / 2;
+    if (lampX < -20 || lampX > w + 20) continue;
+    // Pole
+    ctx.fillStyle = '#555';
+    ctx.fillRect(lampX - 1.5, layout.streetY - 70, 3, 52);
+    // Lamp head
+    ctx.fillStyle = '#777';
+    ctx.fillRect(lampX - 6, layout.streetY - 72, 12, 4);
+    // Light glow
+    ctx.save();
+    ctx.globalAlpha = 0.12 + 0.03 * Math.sin(blockFrameCount * 0.04 + i);
+    const lampGlow = ctx.createRadialGradient(lampX, layout.streetY - 68, 2, lampX, layout.streetY - 50, 45);
+    lampGlow.addColorStop(0, '#ffd700');
+    lampGlow.addColorStop(1, 'transparent');
+    ctx.fillStyle = lampGlow;
+    ctx.fillRect(lampX - 45, layout.streetY - 80, 90, 60);
+    ctx.restore();
+    // Light bulb
+    ctx.fillStyle = '#ffd700';
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(lampX, layout.streetY - 68, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw each themed building (positions already include scroll offset)
   for (let i = 0; i < layout.count; i++) {
     const b = layout.buildings[i];
+    if (b.x + b.w < -20 || b.x > w + 20) continue;
     const key = b.key;
     const lvl = buildingLevels[key] || 0;
     const maxLvl = BUILDINGS[key].levels.length - 1;
@@ -3804,14 +3940,14 @@ function drawBlock() {
 
     // Building name above
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold ' + Math.min(9, b.w * 0.14) + 'px Arial';
+    ctx.font = 'bold ' + Math.min(11, b.w * 0.1) + 'px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(BUILDINGS[key].name, b.x + b.w / 2, b.y - 14);
+    ctx.fillText(BUILDINGS[key].blockName || BUILDINGS[key].name, b.x + b.w / 2, b.y - 16);
 
     // Level indicator
     ctx.fillStyle = lvl >= maxLvl ? '#ffd700' : '#aaa';
-    ctx.font = Math.min(8, b.w * 0.12) + 'px Arial';
-    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 4);
+    ctx.font = Math.min(9, b.w * 0.08) + 'px Arial';
+    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 5);
 
     // Vault glow if interest is pending
     if (key === 'vault' && vaultPendingInterest() > 0.5) {
@@ -3825,32 +3961,130 @@ function drawBlock() {
     }
   }
 
-  // Player
+  // Player (fixed center of screen, on sidewalk)
   const pX = w / 2 - 19;
-  const pY = layout.streetY - 50;
+  const pY = layout.streetY - 68;
   drawBlockPlayer(pX, pY);
 
-  // Upgrade / vault panel
+  // --- Fixed HUD overlay (doesn't scroll) ---
+
+  // Top gradient overlay for HUD
+  const hudGrad = ctx.createLinearGradient(0, 0, 0, 100);
+  hudGrad.addColorStop(0, 'rgba(5,5,16,0.85)');
+  hudGrad.addColorStop(1, 'rgba(5,5,16,0)');
+  ctx.fillStyle = hudGrad;
+  ctx.fillRect(0, 0, w, 100);
+
+  // Title
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#ffd700';
+  ctx.shadowBlur = 10;
+  ctx.fillText('YOUR BLOCK', w / 2, 24);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold ' + Math.min(14, w * 0.036) + 'px Arial';
+  ctx.fillText('⛓️ ' + savedChains + ' chains', w / 2, 44);
+
+  // Daily contract banner
+  drawDailyContract(w, 56);
+
+  // Vault interest claimed notice
+  if (vaultInterestNotice > 0) {
+    vaultInterestNotice--;
+    const alpha = Math.min(1, vaultInterestNotice / 60);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold ' + Math.min(13, w * 0.034) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 8;
+    ctx.fillText('💰 Vault earned +' + vaultInterestNoticeAmt + ' chains while you were away', w / 2, 106);
+    ctx.restore();
+  }
+
+  // Scroll indicator dots
+  if (layout.maxScroll > 0) {
+    const dotCount = layout.count;
+    const dotGap = 12;
+    const dotTotalW = dotCount * dotGap;
+    const dotBaseX = (w - dotTotalW) / 2 + 6;
+    const dotY = layout.streetY + 14;
+    const scrollPct = layout.maxScroll > 0 ? blockScrollX / layout.maxScroll : 0;
+    for (let i = 0; i < dotCount; i++) {
+      const nearPct = i / Math.max(1, dotCount - 1);
+      const dist = Math.abs(scrollPct - nearPct);
+      ctx.fillStyle = dist < 0.2 ? '#ffd700' : 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.arc(dotBaseX + i * dotGap, dotY, dist < 0.2 ? 3 : 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Upgrade / vault panel (fixed overlay)
   if (blockSelectedBuilding >= 0) {
     const sel = layout.buildings[blockSelectedBuilding];
     if (sel.key === 'vault') drawVaultPanel(layout);
     else drawUpgradePanel(layout);
   }
 
-  // START RUN button
+  // START RUN button (fixed bottom)
   if (blockSelectedBuilding < 0) {
     const btn = layout.btn;
+    // Button shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.roundRect(btn.x + 2, btn.y + 3, btn.w, btn.h, 24);
+    ctx.fill();
     const btnGrad = ctx.createLinearGradient(btn.x, btn.y, btn.x + btn.w, btn.y);
     btnGrad.addColorStop(0, '#00e676');
     btnGrad.addColorStop(1, '#00c853');
     ctx.fillStyle = btnGrad;
     ctx.beginPath();
-    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 22);
+    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 24);
     ctx.fill();
     ctx.fillStyle = '#000';
-    ctx.font = 'bold ' + Math.min(18, w * 0.045) + 'px Arial Black, Impact, sans-serif';
+    ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('START RUN', btn.x + btn.w / 2, btn.y + btn.h / 2 + 6);
+    ctx.fillText('START RUN', btn.x + btn.w / 2, btn.y + btn.h / 2 + 7);
+  }
+
+  // Swipe hint on first visit
+  if (blockFrameCount < 180 && blockFrameCount % 60 < 40) {
+    ctx.save();
+    ctx.globalAlpha = 0.5 * (1 - blockFrameCount / 180);
+    ctx.fillStyle = '#fff';
+    ctx.font = Math.min(12, w * 0.03) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('← SWIPE TO EXPLORE →', w / 2, layout.streetY + 32);
+    ctx.restore();
+  }
+}
+
+function drawBlockSkyline(w, h, streetY) {
+  // Background buildings (slow parallax)
+  const parallax = blockScrollX * 0.15;
+  ctx.fillStyle = '#0c0c1e';
+  const bgBuildings = [
+    { x: 20, w: 60, h: 120 }, { x: 100, w: 45, h: 90 }, { x: 160, w: 70, h: 150 },
+    { x: 250, w: 55, h: 110 }, { x: 330, w: 80, h: 140 }, { x: 430, w: 50, h: 100 },
+    { x: 500, w: 65, h: 130 }, { x: 580, w: 40, h: 85 }, { x: 640, w: 75, h: 145 },
+  ];
+  for (const bg of bgBuildings) {
+    const bx = bg.x - parallax % 700;
+    const bx2 = bx < -bg.w ? bx + 700 : bx;
+    const by = streetY - 30 - bg.h;
+    ctx.fillRect(bx2, by, bg.w, bg.h + 30);
+    // Dim lit windows
+    ctx.fillStyle = 'rgba(255,200,100,0.08)';
+    for (let wy = by + 10; wy < by + bg.h; wy += 18) {
+      for (let wx = bx2 + 6; wx < bx2 + bg.w - 6; wx += 14) {
+        if ((wx * 7 + wy * 3) % 5 < 2) ctx.fillRect(wx, wy, 6, 8);
+      }
+    }
+    ctx.fillStyle = '#0c0c1e';
   }
 }
 
@@ -4755,12 +4989,11 @@ function handleBlockClick(clientX, clientY) {
     return;
   }
 
-  // Check building clicks
+  // Check building clicks (buildings have scroll-adjusted x positions)
   for (let i = 0; i < layout.count; i++) {
     const b = layout.buildings[i];
     if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
       blockSelectedBuilding = i;
-      // Opening the Vault claims pending interest
       if (b.key === 'vault' && buildingLevels.vault > 0) {
         applyVaultInterest();
       }
@@ -4775,6 +5008,16 @@ function drawUpgradePanelHitTest() {
 
 function blockLoop() {
   if (state !== STATE.BLOCK) return;
+  // Momentum scrolling
+  if (blockTouchId === null && Math.abs(blockScrollVel) > 0.3) {
+    const info = getBlockWorldInfo();
+    blockScrollX += blockScrollVel;
+    blockScrollVel *= 0.93;
+    if (blockScrollX < 0) { blockScrollX = 0; blockScrollVel = 0; }
+    if (blockScrollX > info.maxScroll) { blockScrollX = info.maxScroll; blockScrollVel = 0; }
+  } else if (blockTouchId === null) {
+    blockScrollVel = 0;
+  }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBlock();
   animFrame = requestAnimationFrame(blockLoop);
