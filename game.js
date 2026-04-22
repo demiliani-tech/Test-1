@@ -3744,24 +3744,27 @@ function getBlockWorldInfo() {
   const w = canvas.width, h = canvas.height;
   const keys = ['trapHouse', 'garage', 'clothing', 'stashHouse', 'vault'];
   const bldgW = Math.max(100, Math.min(140, w * 0.32));
-  const gap = Math.max(24, bldgW * 0.22);
-  const padding = Math.max(30, w * 0.08);
-  const totalWidth = padding * 2 + keys.length * bldgW + (keys.length - 1) * gap;
+  const bldgDepth = Math.floor(bldgW * 0.4);
+  const gap = Math.max(30, bldgW * 0.28);
+  const padding = Math.max(40, w * 0.1);
+  const totalWidth = padding * 2 + keys.length * bldgW + (keys.length - 1) * gap + bldgDepth;
   const maxScroll = Math.max(0, totalWidth - w);
-  return { keys, bldgW, gap, padding, totalWidth, maxScroll };
+  return { keys, bldgW, bldgDepth, gap, padding, totalWidth, maxScroll };
 }
+
+const ISO_DY = 0.5; // for each pixel of depth rightward, go 0.5px upward
 
 function getBlockLayout() {
   const w = canvas.width, h = canvas.height;
-  const streetY = h * 0.72;
+  const streetY = h * 0.62;
   const info = getBlockWorldInfo();
-  const { keys, bldgW, gap, padding } = info;
+  const { keys, bldgW, bldgDepth, gap, padding } = info;
 
-  const baseHeights = [0.30, 0.22, 0.28, 0.24, 0.26];
+  const baseHeights = [0.24, 0.18, 0.22, 0.20, 0.22];
   const buildings = [];
   for (let i = 0; i < keys.length; i++) {
     const lvl = buildingLevels[keys[i]] || 0;
-    const growFactor = 0.04 * lvl;
+    const growFactor = 0.03 * lvl;
     const bH = Math.floor(h * (baseHeights[i] + growFactor));
     const worldX = padding + i * (bldgW + gap);
     buildings.push({
@@ -3769,6 +3772,7 @@ function getBlockLayout() {
       y: streetY - bH,
       w: bldgW,
       h: bH,
+      depth: bldgDepth,
       key: keys[i],
       worldX: worldX,
     });
@@ -3825,19 +3829,19 @@ function drawBlock() {
   const w = canvas.width, h = canvas.height;
   blockFrameCount++;
 
-  // Night sky gradient (fixed)
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.55);
+  // Night sky gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.5);
   skyGrad.addColorStop(0, '#050510');
-  skyGrad.addColorStop(0.6, '#141430');
-  skyGrad.addColorStop(1, '#1a1a2e');
+  skyGrad.addColorStop(0.5, '#0f0f28');
+  skyGrad.addColorStop(1, '#1a1a35');
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, w, h);
 
-  // Stars (fixed, parallax-light)
+  // Stars
   ctx.fillStyle = '#fff';
   for (let i = 0; i < 35; i++) {
     const sx = ((i * 137.5 + 50) - blockScrollX * 0.02) % w;
-    const sy = (i * 89.3 + 10) % (h * 0.28);
+    const sy = (i * 89.3 + 10) % (h * 0.25);
     const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(blockFrameCount * 0.02 + i));
     ctx.globalAlpha = twinkle * 0.7;
     ctx.beginPath();
@@ -3846,9 +3850,9 @@ function drawBlock() {
   }
   ctx.globalAlpha = 1;
 
-  // Moon (fixed)
+  // Moon
   const moonX = w * 0.82;
-  const moonY = h * 0.08;
+  const moonY = h * 0.06;
   ctx.fillStyle = '#e8e4d4';
   ctx.beginPath();
   ctx.arc(moonX, moonY, 14, 0, Math.PI * 2);
@@ -3859,120 +3863,130 @@ function drawBlock() {
   ctx.fill();
 
   const layout = getBlockLayout();
+  const sY = layout.streetY;
 
-  // Background skyline (slow parallax)
-  drawBlockSkyline(w, h, layout.streetY);
+  // Background skyline
+  drawBlockSkyline(w, h, sY);
 
-  // Street + sidewalk (scrolls with buildings)
-  const drawLeft = -blockScrollX;
-  const drawWidth = layout.totalWidth;
+  // --- ISO ground plane ---
+  const drawLeft = -blockScrollX - 50;
+  const drawRight = -blockScrollX + layout.totalWidth + 50;
 
-  // Street surface
+  // Ground fill (asphalt + lot)
+  const gndGrad = ctx.createLinearGradient(0, sY, 0, h);
+  gndGrad.addColorStop(0, '#1e1e1e');
+  gndGrad.addColorStop(0.3, '#1a1a1a');
+  gndGrad.addColorStop(1, '#111');
+  ctx.fillStyle = gndGrad;
+  ctx.fillRect(0, sY - 2, w, h - sY + 2);
+
+  // Sidewalk strip along building bases
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(drawLeft, sY - 2, drawRight - drawLeft, 16);
+  // Sidewalk edge
+  ctx.fillStyle = '#555';
+  ctx.fillRect(drawLeft, sY - 2, drawRight - drawLeft, 2);
+
+  // Road surface
+  const roadTop = sY + 22;
+  const roadH = Math.min(80, (h - sY) * 0.45);
   ctx.fillStyle = '#222';
-  ctx.fillRect(drawLeft, layout.streetY, drawWidth, h - layout.streetY);
-  // Curb
-  ctx.fillStyle = '#666';
-  ctx.fillRect(drawLeft, layout.streetY - 4, drawWidth, 4);
-  // Sidewalk
+  ctx.fillRect(0, roadTop, w, roadH);
+  // Road edges
   ctx.fillStyle = '#444';
-  ctx.fillRect(drawLeft, layout.streetY - 18, drawWidth, 14);
-  // Sidewalk cracks
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 0.5;
-  for (let sx = drawLeft; sx < drawLeft + drawWidth; sx += 60) {
-    if (sx + 60 < 0 || sx > w) continue;
-    ctx.beginPath();
-    ctx.moveTo(sx, layout.streetY - 18);
-    ctx.lineTo(sx, layout.streetY - 4);
-    ctx.stroke();
-  }
-  // Road markings
-  ctx.strokeStyle = 'rgba(255,215,0,0.5)';
+  ctx.fillRect(0, roadTop, w, 2);
+  ctx.fillRect(0, roadTop + roadH - 2, w, 2);
+
+  // Road center line (dashed yellow)
+  ctx.strokeStyle = 'rgba(255,215,0,0.45)';
   ctx.lineWidth = 2;
-  ctx.setLineDash([18, 14]);
-  const roadCenterY = layout.streetY + (h - layout.streetY) * 0.55;
+  ctx.setLineDash([16, 12]);
   ctx.beginPath();
-  ctx.moveTo(0, roadCenterY);
-  ctx.lineTo(w, roadCenterY);
+  ctx.moveTo(0, roadTop + roadH / 2);
+  ctx.lineTo(w, roadTop + roadH / 2);
   ctx.stroke();
   ctx.setLineDash([]);
+
+  // Ground shadows under buildings
+  for (let i = 0; i < layout.count; i++) {
+    const b = layout.buildings[i];
+    if (b.x + b.w + b.depth < -20 || b.x > w + 20) continue;
+    ctx.save();
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(b.x + b.w / 2 + b.depth * 0.3, sY + 10, b.w * 0.55, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // Street lamps between buildings
   for (let i = 0; i < layout.count - 1; i++) {
     const b1 = layout.buildings[i];
     const b2 = layout.buildings[i + 1];
     const lampX = b1.x + b1.w + (b2.x - b1.x - b1.w) / 2;
-    if (lampX < -20 || lampX > w + 20) continue;
-    // Pole
-    ctx.fillStyle = '#555';
-    ctx.fillRect(lampX - 1.5, layout.streetY - 70, 3, 52);
-    // Lamp head
-    ctx.fillStyle = '#777';
-    ctx.fillRect(lampX - 6, layout.streetY - 72, 12, 4);
-    // Light glow
+    if (lampX < -30 || lampX > w + 30) continue;
+    const lampBaseY = sY + 6;
+    ctx.fillStyle = '#444';
+    ctx.fillRect(lampX - 1.5, lampBaseY - 55, 3, 55);
+    ctx.fillStyle = '#666';
+    ctx.fillRect(lampX - 5, lampBaseY - 57, 10, 3);
     ctx.save();
-    ctx.globalAlpha = 0.12 + 0.03 * Math.sin(blockFrameCount * 0.04 + i);
-    const lampGlow = ctx.createRadialGradient(lampX, layout.streetY - 68, 2, lampX, layout.streetY - 50, 45);
-    lampGlow.addColorStop(0, '#ffd700');
-    lampGlow.addColorStop(1, 'transparent');
-    ctx.fillStyle = lampGlow;
-    ctx.fillRect(lampX - 45, layout.streetY - 80, 90, 60);
+    ctx.globalAlpha = 0.15 + 0.04 * Math.sin(blockFrameCount * 0.04 + i);
+    const glow = ctx.createRadialGradient(lampX, lampBaseY - 54, 1, lampX, lampBaseY - 35, 40);
+    glow.addColorStop(0, '#ffd700');
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.fillRect(lampX - 40, lampBaseY - 65, 80, 50);
     ctx.restore();
-    // Light bulb
     ctx.fillStyle = '#ffd700';
     ctx.globalAlpha = 0.8;
     ctx.beginPath();
-    ctx.arc(lampX, layout.streetY - 68, 2, 0, Math.PI * 2);
+    ctx.arc(lampX, lampBaseY - 54, 2, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
   }
 
-  // Draw each themed building (positions already include scroll offset)
+  // Draw buildings left-to-right (correct draw order for right-receding depth)
   for (let i = 0; i < layout.count; i++) {
     const b = layout.buildings[i];
-    if (b.x + b.w < -20 || b.x > w + 20) continue;
+    if (b.x + b.w + b.depth < -20 || b.x > w + 20) continue;
     const key = b.key;
     const lvl = buildingLevels[key] || 0;
     const maxLvl = BUILDINGS[key].levels.length - 1;
     const selected = blockSelectedBuilding === i;
 
-    if (key === 'trapHouse') drawTrapHouse(b, lvl, selected, layout.streetY);
-    else if (key === 'garage') drawChopShop(b, lvl, selected, layout.streetY);
-    else if (key === 'clothing') drawNightclub(b, lvl, selected, layout.streetY);
-    else if (key === 'stashHouse') drawStashHouse(b, lvl, selected, layout.streetY);
-    else if (key === 'vault') drawVaultBuilding(b, lvl, selected, layout.streetY);
+    drawIsoBuilding(b, lvl, key, selected, sY);
 
-    // Building name above
+    // Building name label
+    const labelX = b.x + b.w / 2 + b.depth * 0.5;
+    const labelY = b.y - b.depth * ISO_DY - 18;
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold ' + Math.min(11, b.w * 0.1) + 'px Arial';
+    ctx.font = 'bold ' + Math.min(11, b.w * 0.09) + 'px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(BUILDINGS[key].blockName || BUILDINGS[key].name, b.x + b.w / 2, b.y - 16);
-
-    // Level indicator
+    ctx.fillText(BUILDINGS[key].blockName || BUILDINGS[key].name, labelX, labelY);
     ctx.fillStyle = lvl >= maxLvl ? '#ffd700' : '#aaa';
-    ctx.font = Math.min(9, b.w * 0.08) + 'px Arial';
-    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, b.x + b.w / 2, b.y - 5);
+    ctx.font = Math.min(9, b.w * 0.07) + 'px Arial';
+    ctx.fillText(lvl >= maxLvl ? 'MAXED' : BUILDINGS[key].levels[lvl].label, labelX, labelY + 12);
 
-    // Vault glow if interest is pending
+    // Vault pending interest glow
     if (key === 'vault' && vaultPendingInterest() > 0.5) {
       ctx.save();
       ctx.strokeStyle = '#ffd700';
       ctx.lineWidth = 2;
       ctx.shadowColor = '#ffd700';
       ctx.shadowBlur = 12 + 6 * Math.abs(Math.sin(blockFrameCount * 0.08));
-      ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+      drawIsoBoxOutline(b.x, sY, b.w, b.h, b.depth);
       ctx.restore();
     }
   }
 
-  // Player (fixed center of screen, on sidewalk)
+  // Player on sidewalk
   const pX = w / 2 - 19;
-  const pY = layout.streetY - 68;
+  const pY = sY - 52;
   drawBlockPlayer(pX, pY);
 
-  // --- Fixed HUD overlay (doesn't scroll) ---
-
-  // Top gradient overlay for HUD
+  // --- Fixed HUD overlay ---
   const st = safeTop;
   const hudGrad = ctx.createLinearGradient(0, 0, 0, st + 110);
   hudGrad.addColorStop(0, 'rgba(5,5,16,0.85)');
@@ -3980,7 +3994,6 @@ function drawBlock() {
   ctx.fillStyle = hudGrad;
   ctx.fillRect(0, 0, w, st + 110);
 
-  // Title
   ctx.fillStyle = '#ffd700';
   ctx.font = 'bold ' + Math.min(20, w * 0.05) + 'px Arial Black, Impact, sans-serif';
   ctx.textAlign = 'center';
@@ -3992,15 +4005,12 @@ function drawBlock() {
   ctx.font = 'bold ' + Math.min(14, w * 0.036) + 'px Arial';
   ctx.fillText('⛓️ ' + savedChains + ' chains', w / 2, st + 44);
 
-  // Daily contract banner
   drawDailyContract(w, st + 56);
 
-  // Vault interest claimed notice
   if (vaultInterestNotice > 0) {
     vaultInterestNotice--;
-    const alpha = Math.min(1, vaultInterestNotice / 60);
     ctx.save();
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = Math.min(1, vaultInterestNotice / 60);
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold ' + Math.min(13, w * 0.034) + 'px Arial';
     ctx.textAlign = 'center';
@@ -4010,17 +4020,15 @@ function drawBlock() {
     ctx.restore();
   }
 
-  // Scroll indicator dots
+  // Scroll indicator
   if (layout.maxScroll > 0) {
     const dotCount = layout.count;
     const dotGap = 12;
-    const dotTotalW = dotCount * dotGap;
-    const dotBaseX = (w - dotTotalW) / 2 + 6;
-    const dotY = layout.streetY + 14;
-    const scrollPct = layout.maxScroll > 0 ? blockScrollX / layout.maxScroll : 0;
+    const dotBaseX = (w - dotCount * dotGap) / 2 + 6;
+    const dotY = sY + roadH + 34;
+    const scrollPct = blockScrollX / layout.maxScroll;
     for (let i = 0; i < dotCount; i++) {
-      const nearPct = i / Math.max(1, dotCount - 1);
-      const dist = Math.abs(scrollPct - nearPct);
+      const dist = Math.abs(scrollPct - i / Math.max(1, dotCount - 1));
       ctx.fillStyle = dist < 0.2 ? '#ffd700' : 'rgba(255,255,255,0.25)';
       ctx.beginPath();
       ctx.arc(dotBaseX + i * dotGap, dotY, dist < 0.2 ? 3 : 2, 0, Math.PI * 2);
@@ -4028,17 +4036,16 @@ function drawBlock() {
     }
   }
 
-  // Upgrade / vault panel (fixed overlay)
+  // Panels (fixed overlay)
   if (blockSelectedBuilding >= 0) {
     const sel = layout.buildings[blockSelectedBuilding];
     if (sel.key === 'vault') drawVaultPanel(layout);
     else drawUpgradePanel(layout);
   }
 
-  // START RUN button (fixed bottom)
+  // START RUN button
   if (blockSelectedBuilding < 0) {
     const btn = layout.btn;
-    // Button shadow
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
     ctx.roundRect(btn.x + 2, btn.y + 3, btn.w, btn.h, 24);
@@ -4056,527 +4063,508 @@ function drawBlock() {
     ctx.fillText('START RUN', btn.x + btn.w / 2, btn.y + btn.h / 2 + 7);
   }
 
-  // Swipe hint on first visit
+  // Swipe hint
   if (blockFrameCount < 180 && blockFrameCount % 60 < 40) {
     ctx.save();
     ctx.globalAlpha = 0.5 * (1 - blockFrameCount / 180);
     ctx.fillStyle = '#fff';
     ctx.font = Math.min(12, w * 0.03) + 'px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('← SWIPE TO EXPLORE →', w / 2, layout.streetY + 32);
+    ctx.fillText('← SWIPE TO EXPLORE →', w / 2, sY + roadH + 52);
     ctx.restore();
   }
 }
 
 function drawBlockSkyline(w, h, streetY) {
-  // Background buildings (slow parallax)
-  const parallax = blockScrollX * 0.15;
+  const parallax = blockScrollX * 0.12;
   ctx.fillStyle = '#0c0c1e';
-  const bgBuildings = [
-    { x: 20, w: 60, h: 120 }, { x: 100, w: 45, h: 90 }, { x: 160, w: 70, h: 150 },
-    { x: 250, w: 55, h: 110 }, { x: 330, w: 80, h: 140 }, { x: 430, w: 50, h: 100 },
-    { x: 500, w: 65, h: 130 }, { x: 580, w: 40, h: 85 }, { x: 640, w: 75, h: 145 },
+  const bgs = [
+    { x: 20, w: 60, h: 100 }, { x: 100, w: 45, h: 75 }, { x: 160, w: 70, h: 120 },
+    { x: 250, w: 55, h: 90 }, { x: 330, w: 80, h: 115 }, { x: 430, w: 50, h: 80 },
+    { x: 500, w: 65, h: 105 }, { x: 580, w: 40, h: 70 }, { x: 640, w: 75, h: 118 },
   ];
-  for (const bg of bgBuildings) {
+  for (const bg of bgs) {
     const bx = bg.x - parallax % 700;
     const bx2 = bx < -bg.w ? bx + 700 : bx;
-    const by = streetY - 30 - bg.h;
-    ctx.fillRect(bx2, by, bg.w, bg.h + 30);
-    // Dim lit windows
-    ctx.fillStyle = 'rgba(255,200,100,0.08)';
+    const by = streetY - 20 - bg.h;
+    ctx.fillRect(bx2, by, bg.w, bg.h + 20);
+    ctx.fillStyle = 'rgba(255,200,100,0.06)';
     for (let wy = by + 10; wy < by + bg.h; wy += 18) {
       for (let wx = bx2 + 6; wx < bx2 + bg.w - 6; wx += 14) {
-        if ((wx * 7 + wy * 3) % 5 < 2) ctx.fillRect(wx, wy, 6, 8);
+        if ((wx * 7 + wy * 3) % 5 < 2) ctx.fillRect(wx, wy, 5, 7);
       }
     }
     ctx.fillStyle = '#0c0c1e';
   }
 }
 
-// --- Themed building drawings ---
+// --- Isometric building system ---
 
-function drawTrapHouse(b, lvl, selected, streetY) {
-  // Rundown house look: boarded windows, graffiti, dim lights
-  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-  bGrad.addColorStop(0, '#4a2020');
-  bGrad.addColorStop(0.5, '#5c2828');
-  bGrad.addColorStop(1, '#3a1818');
-  ctx.fillStyle = bGrad;
-  ctx.beginPath();
-  ctx.roundRect(b.x, b.y, b.w, b.h, [4, 4, 0, 0]);
-  ctx.fill();
+function drawIsoBox(x, groundY, w, h, d, frontColors, sideColor, topColor) {
+  const dy = d * ISO_DY;
+  const topY = groundY - h;
 
-  // Roof overhang
-  ctx.fillStyle = '#2a1010';
+  // Right side face (darkest)
+  ctx.fillStyle = sideColor;
   ctx.beginPath();
-  ctx.moveTo(b.x - 4, b.y);
-  ctx.lineTo(b.x + b.w / 2, b.y - 12);
-  ctx.lineTo(b.x + b.w + 4, b.y);
+  ctx.moveTo(x + w, topY);
+  ctx.lineTo(x + w + d, topY - dy);
+  ctx.lineTo(x + w + d, groundY - dy);
+  ctx.lineTo(x + w, groundY);
   ctx.closePath();
   ctx.fill();
 
-  // Selection glow
-  if (selected) {
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, [6, 6, 0, 0]);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-
-  // Boarded/cracked windows - some lit based on level
-  const rows = Math.max(1, Math.floor(b.h / 32));
-  const cols = Math.max(1, Math.floor(b.w / 28));
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const wx = b.x + 8 + c * 28;
-      const wy = b.y + 18 + r * 32;
-      if (wy + 16 > streetY - 25) continue;
-      const lit = (r * cols + c) < lvl * 2;
-      // Window
-      ctx.fillStyle = lit ? 'rgba(255,180,50,0.6)' : 'rgba(20,15,15,0.8)';
-      ctx.fillRect(wx, wy, 16, 16);
-      // Boards on unlit windows
-      if (!lit) {
-        ctx.strokeStyle = '#5a3a1a';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(wx, wy + 5); ctx.lineTo(wx + 16, wy + 5);
-        ctx.moveTo(wx, wy + 11); ctx.lineTo(wx + 16, wy + 11);
-        ctx.stroke();
-      }
-    }
-  }
-
-  // Door - heavy, dark
-  const doorW = Math.min(24, b.w * 0.28);
-  const doorH = 32;
-  const doorX = b.x + (b.w - doorW) / 2;
-  ctx.fillStyle = '#1a0a0a';
-  ctx.fillRect(doorX, streetY - doorH, doorW, doorH);
-  ctx.fillStyle = '#3a1a1a';
-  ctx.fillRect(doorX + 2, streetY - doorH + 2, doorW - 4, doorH - 2);
-  // Door knob
-  ctx.fillStyle = '#aa8844';
+  // Top face
+  ctx.fillStyle = topColor;
   ctx.beginPath();
-  ctx.arc(doorX + doorW - 6, streetY - doorH / 2, 2, 0, Math.PI * 2);
+  ctx.moveTo(x, topY);
+  ctx.lineTo(x + d, topY - dy);
+  ctx.lineTo(x + w + d, topY - dy);
+  ctx.lineTo(x + w, topY);
+  ctx.closePath();
   ctx.fill();
 
-  // Graffiti tag (small "$" or scribble)
-  ctx.fillStyle = 'rgba(255,50,50,0.4)';
-  ctx.font = 'bold ' + Math.min(14, b.w * 0.14) + 'px Arial';
-  ctx.textAlign = 'left';
-  ctx.fillText('$$$', b.x + 4, streetY - doorH - 8);
+  // Front face (gradient)
+  const fg = ctx.createLinearGradient(x, topY, x, groundY);
+  fg.addColorStop(0, frontColors[0]);
+  fg.addColorStop(0.5, frontColors[1]);
+  fg.addColorStop(1, frontColors[2]);
+  ctx.fillStyle = fg;
+  ctx.fillRect(x, topY, w, h);
 
-  // Smoke/steam if upgraded
-  if (lvl >= 2) {
-    ctx.globalAlpha = 0.15 + 0.1 * Math.sin(blockFrameCount * 0.05);
-    ctx.fillStyle = '#888';
-    for (let s = 0; s < 3; s++) {
-      const sx = b.x + b.w * 0.3 + s * 12;
-      const sy = b.y - 8 - Math.sin(blockFrameCount * 0.03 + s) * 6;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 4 + s * 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
-}
-
-function drawChopShop(b, lvl, selected, streetY) {
-  // Garage/warehouse look: big roll-up door, tools, car parts
-  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-  bGrad.addColorStop(0, '#2a3a4a');
-  bGrad.addColorStop(0.5, '#1a2a3a');
-  bGrad.addColorStop(1, '#0a1a2a');
-  ctx.fillStyle = bGrad;
-  ctx.fillRect(b.x, b.y, b.w, b.h);
-
-  // Flat industrial roof
-  ctx.fillStyle = '#1a2530';
-  ctx.fillRect(b.x - 2, b.y, b.w + 4, 6);
-
-  if (selected) {
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.rect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-
-  // Big garage roll-up door
-  const gDoorW = b.w * 0.7;
-  const gDoorH = Math.min(b.h * 0.6, 50);
-  const gDoorX = b.x + (b.w - gDoorW) / 2;
-  const gDoorY = streetY - gDoorH;
-  ctx.fillStyle = '#3a4a5a';
-  ctx.fillRect(gDoorX, gDoorY, gDoorW, gDoorH);
-  // Horizontal slats on door
-  ctx.strokeStyle = '#2a3a4a';
+  // Edge lines for definition
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.lineWidth = 1;
-  for (let s = 0; s < 6; s++) {
-    const sy = gDoorY + 4 + s * (gDoorH / 6);
-    ctx.beginPath();
-    ctx.moveTo(gDoorX, sy);
-    ctx.lineTo(gDoorX + gDoorW, sy);
-    ctx.stroke();
-  }
-  // Door handle
-  ctx.fillStyle = '#888';
-  ctx.fillRect(gDoorX + gDoorW / 2 - 8, gDoorY + gDoorH - 8, 16, 4);
-
-  // Small window up top
-  if (b.h > 60) {
-    const winY = b.y + 14;
-    ctx.fillStyle = lvl >= 1 ? 'rgba(100,180,255,0.5)' : 'rgba(20,30,40,0.8)';
-    ctx.fillRect(b.x + 8, winY, b.w - 16, 14);
-    ctx.strokeStyle = '#1a2a3a';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(b.x + 8, winY, b.w - 16, 14);
-    // Cross divider
-    ctx.beginPath();
-    ctx.moveTo(b.x + b.w / 2, winY);
-    ctx.lineTo(b.x + b.w / 2, winY + 14);
-    ctx.stroke();
-  }
-
-  // Oil stain on ground in front
-  ctx.fillStyle = 'rgba(20,20,20,0.4)';
   ctx.beginPath();
-  ctx.ellipse(b.x + b.w / 2, streetY + 4, b.w * 0.3, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // "CHOP SHOP" sign or tools indicator based on level
-  if (lvl >= 1) {
-    // Wrench icon
-    ctx.strokeStyle = '#aaa';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(b.x + b.w - 16, b.y + 12);
-    ctx.lineTo(b.x + b.w - 8, b.y + 24);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(b.x + b.w - 16, b.y + 10, 4, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  // Tire stack if upgraded
-  if (lvl >= 2) {
-    ctx.fillStyle = '#222';
-    for (let t = 0; t < 2; t++) {
-      ctx.beginPath();
-      ctx.arc(b.x + 10, streetY - 6 - t * 10, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-  }
+  ctx.moveTo(x, topY); ctx.lineTo(x + w, topY);
+  ctx.moveTo(x + w, topY); ctx.lineTo(x + w, groundY);
+  ctx.moveTo(x + w, topY); ctx.lineTo(x + w + d, topY - dy);
+  ctx.moveTo(x + w + d, topY - dy); ctx.lineTo(x + w + d, groundY - dy);
+  ctx.moveTo(x + w + d, groundY - dy); ctx.lineTo(x + w, groundY);
+  ctx.moveTo(x + d, topY - dy); ctx.lineTo(x + w + d, topY - dy);
+  ctx.stroke();
 }
 
-function drawNightclub(b, lvl, selected, streetY) {
-  // Nightclub: neon lights, dark walls, pulsing colors, velvet rope
-  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-  bGrad.addColorStop(0, '#2a1040');
-  bGrad.addColorStop(0.5, '#1a0830');
-  bGrad.addColorStop(1, '#100520');
-  ctx.fillStyle = bGrad;
+function drawIsoBoxOutline(x, groundY, w, h, d) {
+  const dy = d * ISO_DY;
+  const topY = groundY - h;
   ctx.beginPath();
-  ctx.roundRect(b.x, b.y, b.w, b.h, [6, 6, 0, 0]);
-  ctx.fill();
-
-  // Flat roof with neon trim
-  const neonPulse = 0.5 + 0.5 * Math.sin(blockFrameCount * 0.06);
-  ctx.strokeStyle = `rgba(255,0,255,${0.4 + neonPulse * 0.4})`;
-  ctx.lineWidth = 3;
-  ctx.shadowColor = '#ff00ff';
-  ctx.shadowBlur = 8 + neonPulse * 8;
-  ctx.beginPath();
-  ctx.moveTo(b.x, b.y + 2);
-  ctx.lineTo(b.x + b.w, b.y + 2);
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, topY);
+  ctx.lineTo(x + d, topY - dy);
+  ctx.lineTo(x + w + d, topY - dy);
+  ctx.lineTo(x + w + d, groundY - dy);
+  ctx.lineTo(x + w, groundY);
+  ctx.closePath();
   ctx.stroke();
-  ctx.shadowBlur = 0;
+}
 
-  if (selected) {
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 12;
+function isoBoxContains(px, py, b, groundY) {
+  const d = b.depth, dy = d * ISO_DY;
+  const topY = groundY - b.h;
+  const pts = [
+    [b.x, groundY], [b.x, topY], [b.x + d, topY - dy],
+    [b.x + b.w + d, topY - dy], [b.x + b.w + d, groundY - dy], [b.x + b.w, groundY],
+  ];
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+const ISO_BUILDING_STYLES = {
+  trapHouse:  { front: ['#5c2828', '#4a2020', '#3a1818'], side: '#2a1010', top: '#3a1515', roof: 'peaked' },
+  garage:     { front: ['#2a3a4a', '#1a2a3a', '#0a1a2a'], side: '#0a1520', top: '#1a2a38', roof: 'flat' },
+  clothing:   { front: ['#2a1040', '#1a0830', '#100520'], side: '#0a0318', top: '#180a30', roof: 'flat' },
+  stashHouse: { front: ['#7a3a2a', '#6b3024', '#4a1f18'], side: '#3a150e', top: '#4a2018', roof: 'flat' },
+  vault:      { front: ['#3c3c4a', '#2e2e3a', '#252530'], side: '#1a1a25', top: '#50506a', roof: 'pediment' },
+};
+
+function drawIsoBuilding(b, lvl, key, selected, groundY) {
+  const st = ISO_BUILDING_STYLES[key];
+  const d = b.depth, dy = d * ISO_DY;
+  const topY = groundY - b.h;
+
+  // Main 3D box
+  drawIsoBox(b.x, groundY, b.w, b.h, d, st.front, st.side, st.top);
+
+  // Building-specific roof shapes
+  if (st.roof === 'peaked') {
+    const peakH = 14;
+    // Front gable
+    ctx.fillStyle = '#2a1010';
     ctx.beginPath();
-    ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, [8, 8, 0, 0]);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-
-  // Neon sign (pulsing club name)
-  const signY = b.y + Math.min(28, b.h * 0.15);
-  ctx.fillStyle = `rgba(255,100,255,${0.6 + neonPulse * 0.3})`;
-  ctx.shadowColor = '#ff00ff';
-  ctx.shadowBlur = 6 + neonPulse * 6;
-  ctx.font = 'bold ' + Math.min(10, b.w * 0.09) + 'px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText('CLUB', b.x + b.w / 2, signY);
-  ctx.shadowBlur = 0;
-
-  // Dark tinted windows with color glow inside
-  const winColors = ['#ff00ff', '#00ffff', '#ff0066', '#6600ff'];
-  const rows = Math.max(1, Math.floor((b.h - 50) / 30));
-  for (let r = 0; r < rows; r++) {
-    const wy = b.y + 36 + r * 30;
-    if (wy + 16 > streetY - 30) continue;
-    ctx.fillStyle = 'rgba(10,5,20,0.9)';
-    ctx.fillRect(b.x + 6, wy, b.w - 12, 16);
-    // Interior glow based on level
-    if (r < lvl) {
-      const glowCol = winColors[(r + Math.floor(blockFrameCount / 30)) % winColors.length];
-      ctx.fillStyle = glowCol;
-      ctx.globalAlpha = 0.2 + 0.15 * Math.sin(blockFrameCount * 0.08 + r);
-      ctx.fillRect(b.x + 7, wy + 1, b.w - 14, 14);
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  // Club door
-  const doorW = Math.min(22, b.w * 0.25);
-  const doorH = 30;
-  const doorX = b.x + (b.w - doorW) / 2;
-  ctx.fillStyle = '#0a0515';
-  ctx.fillRect(doorX, streetY - doorH, doorW, doorH);
-  ctx.fillStyle = '#2a1040';
-  ctx.fillRect(doorX + 2, streetY - doorH + 2, doorW - 4, doorH - 2);
-
-  // Velvet rope
-  if (lvl >= 1) {
-    ctx.strokeStyle = '#cc0044';
-    ctx.lineWidth = 2;
-    const ropeY = streetY - 4;
-    // Left post
-    ctx.fillStyle = '#888';
-    ctx.fillRect(doorX - 10, ropeY - 14, 3, 14);
-    // Right post
-    ctx.fillRect(doorX + doorW + 7, ropeY - 14, 3, 14);
-    // Rope
+    ctx.moveTo(b.x, topY);
+    ctx.lineTo(b.x + b.w / 2, topY - peakH);
+    ctx.lineTo(b.x + b.w, topY);
+    ctx.closePath();
+    ctx.fill();
+    // Right slope of peaked roof
+    ctx.fillStyle = '#1e0c0c';
     ctx.beginPath();
-    ctx.moveTo(doorX - 8, ropeY - 10);
-    ctx.quadraticCurveTo(doorX + doorW / 2, ropeY - 4, doorX + doorW + 8, ropeY - 10);
-    ctx.stroke();
+    ctx.moveTo(b.x + b.w, topY);
+    ctx.lineTo(b.x + b.w / 2, topY - peakH);
+    ctx.lineTo(b.x + b.w / 2 + d, topY - peakH - dy);
+    ctx.lineTo(b.x + b.w + d, topY - dy);
+    ctx.closePath();
+    ctx.fill();
+    // Left slope (top surface)
+    ctx.fillStyle = '#3a1818';
+    ctx.beginPath();
+    ctx.moveTo(b.x, topY);
+    ctx.lineTo(b.x + b.w / 2, topY - peakH);
+    ctx.lineTo(b.x + b.w / 2 + d, topY - peakH - dy);
+    ctx.lineTo(b.x + d, topY - dy);
+    ctx.closePath();
+    ctx.fill();
+  } else if (st.roof === 'pediment') {
+    const pedH = 10;
+    // Front pediment triangle
+    ctx.fillStyle = '#55556a';
+    ctx.beginPath();
+    ctx.moveTo(b.x + 2, topY);
+    ctx.lineTo(b.x + b.w / 2, topY - pedH);
+    ctx.lineTo(b.x + b.w - 2, topY);
+    ctx.closePath();
+    ctx.fill();
+    // Side of pediment
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath();
+    ctx.moveTo(b.x + b.w - 2, topY);
+    ctx.lineTo(b.x + b.w / 2, topY - pedH);
+    ctx.lineTo(b.x + b.w / 2 + d, topY - pedH - dy);
+    ctx.lineTo(b.x + b.w - 2 + d, topY - dy);
+    ctx.closePath();
+    ctx.fill();
   }
 
-  // Bouncing light beams from roof if upgraded
-  if (lvl >= 2) {
-    ctx.globalAlpha = 0.08 + 0.04 * Math.sin(blockFrameCount * 0.04);
-    const beamAngle = Math.sin(blockFrameCount * 0.03) * 0.3;
+  // Building-specific front face details
+  if (key === 'trapHouse') drawIsoTrapDetails(b, lvl, groundY);
+  else if (key === 'garage') drawIsoGarageDetails(b, lvl, groundY);
+  else if (key === 'clothing') drawIsoClubDetails(b, lvl, groundY);
+  else if (key === 'stashHouse') drawIsoStashDetails(b, lvl, groundY);
+  else if (key === 'vault') drawIsoVaultDetails(b, lvl, groundY);
+
+  // Roof details
+  if (key === 'clothing' && lvl >= 2) {
+    ctx.globalAlpha = 0.1 + 0.05 * Math.sin(blockFrameCount * 0.04);
+    const beamX = b.x + b.w / 2 + d * 0.5;
+    const beamY = topY - dy * 0.5;
     ctx.fillStyle = '#ff00ff';
     ctx.beginPath();
-    ctx.moveTo(b.x + b.w / 2, b.y);
-    ctx.lineTo(b.x + b.w / 2 - 30 + Math.sin(beamAngle) * 20, b.y - 40);
-    ctx.lineTo(b.x + b.w / 2 + 10 + Math.sin(beamAngle) * 20, b.y - 40);
+    ctx.moveTo(beamX, beamY);
+    ctx.lineTo(beamX - 25 + Math.sin(blockFrameCount * 0.03) * 15, beamY - 40);
+    ctx.lineTo(beamX + 8 + Math.sin(blockFrameCount * 0.03) * 15, beamY - 40);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = '#00ffff';
     ctx.beginPath();
-    ctx.moveTo(b.x + b.w / 2, b.y);
-    ctx.lineTo(b.x + b.w / 2 + 20 - Math.sin(beamAngle) * 20, b.y - 35);
-    ctx.lineTo(b.x + b.w / 2 + 40 - Math.sin(beamAngle) * 20, b.y - 35);
+    ctx.moveTo(beamX + 10, beamY);
+    ctx.lineTo(beamX + 25 - Math.sin(blockFrameCount * 0.03) * 12, beamY - 35);
+    ctx.lineTo(beamX + 40 - Math.sin(blockFrameCount * 0.03) * 12, beamY - 35);
     ctx.closePath();
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-}
 
-function drawStashHouse(b, lvl, selected, streetY) {
-  // Small brick house with steel door and barred windows
-  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-  bGrad.addColorStop(0, '#6b3024');
-  bGrad.addColorStop(0.5, '#7a3a2a');
-  bGrad.addColorStop(1, '#4a1f18');
-  ctx.fillStyle = bGrad;
-  ctx.beginPath();
-  ctx.roundRect(b.x, b.y, b.w, b.h, [4, 4, 0, 0]);
-  ctx.fill();
-
-  // Brick pattern
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-  ctx.lineWidth = 1;
-  const brickH = 8;
-  for (let y = b.y + brickH; y < b.y + b.h; y += brickH) {
-    ctx.beginPath();
-    ctx.moveTo(b.x, y);
-    ctx.lineTo(b.x + b.w, y);
-    ctx.stroke();
+  if (key === 'trapHouse' && lvl >= 2) {
+    ctx.globalAlpha = 0.15 + 0.1 * Math.sin(blockFrameCount * 0.05);
+    ctx.fillStyle = '#888';
+    const smokeX = b.x + b.w * 0.4 + d * 0.5;
+    const smokeBaseY = topY - (st.roof === 'peaked' ? 14 : 0) - dy * 0.5;
+    for (let s = 0; s < 3; s++) {
+      ctx.beginPath();
+      ctx.arc(smokeX + s * 6, smokeBaseY - 6 - Math.sin(blockFrameCount * 0.03 + s) * 5, 3 + s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
-
-  // Flat roof cap
-  ctx.fillStyle = '#2a120c';
-  ctx.fillRect(b.x - 2, b.y - 4, b.w + 4, 5);
 
   // Selection glow
   if (selected) {
+    ctx.save();
     ctx.strokeStyle = '#ffd700';
     ctx.lineWidth = 3;
     ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 12;
-    ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
-    ctx.shadowBlur = 0;
+    ctx.shadowBlur = 14;
+    drawIsoBoxOutline(b.x, groundY, b.w, b.h, d);
+    ctx.restore();
   }
 
-  // Steel door — thicker at higher levels
-  const doorW = Math.min(18, b.w * 0.3);
-  const doorH = Math.min(28, b.h * 0.42);
-  const doorX = b.x + b.w / 2 - doorW / 2;
-  const doorY = b.y + b.h - doorH - 2;
-  const doorShade = lvl >= 3 ? '#3a3a44' : lvl >= 1 ? '#4a4a55' : '#666';
-  ctx.fillStyle = doorShade;
-  ctx.fillRect(doorX, doorY, doorW, doorH);
-  ctx.strokeStyle = '#222';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(doorX, doorY, doorW, doorH);
-  // Bolts on door (more at higher levels)
-  ctx.fillStyle = '#888';
-  const bolts = Math.min(6, 2 + lvl);
-  for (let i = 0; i < bolts; i++) {
+  // Side face windows (1-2 small ones)
+  const sideWinCount = Math.max(1, Math.floor(b.h / 60));
+  for (let sw = 0; sw < sideWinCount; sw++) {
+    const swx = b.x + b.w + d * 0.3;
+    const swy = topY + 15 + sw * 35;
+    if (swy + 12 > groundY - 15) continue;
+    const swOff = d * 0.3 * ISO_DY;
+    ctx.fillStyle = sw < lvl ? 'rgba(255,200,100,0.3)' : 'rgba(10,10,10,0.5)';
     ctx.beginPath();
-    ctx.arc(doorX + 2 + (doorW - 4) * (i / Math.max(1, bolts - 1)), doorY + 2, 1.2, 0, Math.PI * 2);
+    ctx.moveTo(swx, swy - swOff);
+    ctx.lineTo(swx + d * 0.4, swy - swOff - d * 0.4 * ISO_DY);
+    ctx.lineTo(swx + d * 0.4, swy + 10 - swOff - d * 0.4 * ISO_DY);
+    ctx.lineTo(swx, swy + 10 - swOff);
+    ctx.closePath();
     ctx.fill();
   }
+}
 
-  // Barred window with cash sack visible (more sacks at higher levels)
-  const winW = Math.min(20, b.w * 0.38);
-  const winH = 12;
-  const winX = b.x + 4;
-  const winY = b.y + 8;
+function drawIsoTrapDetails(b, lvl, groundY) {
+  const topY = groundY - b.h;
+  // Windows (some lit, some boarded)
+  const cols = Math.max(1, Math.floor(b.w / 32));
+  const rows = Math.max(1, Math.floor(b.h / 40));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wx = b.x + 8 + c * 30;
+      const wy = topY + 20 + r * 36;
+      if (wx + 14 > b.x + b.w - 4 || wy + 14 > groundY - 30) continue;
+      const lit = (r * cols + c) < lvl * 2;
+      ctx.fillStyle = lit ? 'rgba(255,180,50,0.55)' : 'rgba(20,15,15,0.7)';
+      ctx.fillRect(wx, wy, 14, 14);
+      if (!lit) {
+        ctx.strokeStyle = '#5a3a1a';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(wx, wy + 5); ctx.lineTo(wx + 14, wy + 5);
+        ctx.moveTo(wx, wy + 10); ctx.lineTo(wx + 14, wy + 10);
+        ctx.stroke();
+      }
+    }
+  }
+  // Door
+  const doorW = Math.min(22, b.w * 0.22);
+  const doorH = Math.min(30, b.h * 0.35);
+  const doorX = b.x + (b.w - doorW) / 2;
+  ctx.fillStyle = '#1a0a0a';
+  ctx.fillRect(doorX, groundY - doorH, doorW, doorH);
+  ctx.fillStyle = '#3a1a1a';
+  ctx.fillRect(doorX + 2, groundY - doorH + 2, doorW - 4, doorH - 2);
+  ctx.fillStyle = '#aa8844';
+  ctx.beginPath();
+  ctx.arc(doorX + doorW - 5, groundY - doorH / 2, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Graffiti
+  ctx.fillStyle = 'rgba(255,50,50,0.35)';
+  ctx.font = 'bold ' + Math.min(12, b.w * 0.1) + 'px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText('$$$', b.x + 4, groundY - doorH - 6);
+}
+
+function drawIsoGarageDetails(b, lvl, groundY) {
+  const topY = groundY - b.h;
+  // Garage door
+  const gW = b.w * 0.65;
+  const gH = Math.min(b.h * 0.55, 45);
+  const gX = b.x + (b.w - gW) / 2;
+  const gY = groundY - gH;
+  ctx.fillStyle = '#3a4a5a';
+  ctx.fillRect(gX, gY, gW, gH);
+  ctx.strokeStyle = '#2a3a48';
+  ctx.lineWidth = 1;
+  for (let s = 0; s < 5; s++) {
+    const sy = gY + 3 + s * (gH / 5);
+    ctx.beginPath();
+    ctx.moveTo(gX, sy); ctx.lineTo(gX + gW, sy);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#777';
+  ctx.fillRect(gX + gW / 2 - 7, gY + gH - 7, 14, 3);
+  // Window
+  if (b.h > 55) {
+    ctx.fillStyle = lvl >= 1 ? 'rgba(100,180,255,0.4)' : 'rgba(20,30,40,0.7)';
+    ctx.fillRect(b.x + 8, topY + 12, b.w - 16, 12);
+    ctx.strokeStyle = '#1a2a3a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x + 8, topY + 12, b.w - 16, 12);
+  }
+  // Wrench icon
+  if (lvl >= 1) {
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b.x + b.w - 14, topY + 10);
+    ctx.lineTo(b.x + b.w - 7, topY + 20);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(b.x + b.w - 14, topY + 9, 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawIsoClubDetails(b, lvl, groundY) {
+  const topY = groundY - b.h;
+  const neonPulse = 0.5 + 0.5 * Math.sin(blockFrameCount * 0.06);
+  // Neon trim along top of front face
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,0,255,${0.4 + neonPulse * 0.4})`;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = '#ff00ff';
+  ctx.shadowBlur = 6 + neonPulse * 6;
+  ctx.beginPath();
+  ctx.moveTo(b.x, topY + 2);
+  ctx.lineTo(b.x + b.w, topY + 2);
+  ctx.stroke();
+  ctx.restore();
+  // "CLUB" sign
+  ctx.fillStyle = `rgba(255,100,255,${0.6 + neonPulse * 0.3})`;
+  ctx.shadowColor = '#ff00ff';
+  ctx.shadowBlur = 5 + neonPulse * 5;
+  ctx.font = 'bold ' + Math.min(10, b.w * 0.08) + 'px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('CLUB', b.x + b.w / 2, topY + 22);
+  ctx.shadowBlur = 0;
+  // Windows with colored glow
+  const winColors = ['#ff00ff', '#00ffff', '#ff0066', '#6600ff'];
+  const rows = Math.max(1, Math.floor((b.h - 50) / 28));
+  for (let r = 0; r < rows; r++) {
+    const wy = topY + 30 + r * 28;
+    if (wy + 14 > groundY - 28) continue;
+    ctx.fillStyle = 'rgba(10,5,20,0.85)';
+    ctx.fillRect(b.x + 5, wy, b.w - 10, 14);
+    if (r < lvl) {
+      ctx.fillStyle = winColors[(r + Math.floor(blockFrameCount / 30)) % winColors.length];
+      ctx.globalAlpha = 0.2 + 0.15 * Math.sin(blockFrameCount * 0.08 + r);
+      ctx.fillRect(b.x + 6, wy + 1, b.w - 12, 12);
+      ctx.globalAlpha = 1;
+    }
+  }
+  // Door
+  const doorW = Math.min(20, b.w * 0.22);
+  const doorH = 26;
+  const doorX = b.x + (b.w - doorW) / 2;
+  ctx.fillStyle = '#0a0515';
+  ctx.fillRect(doorX, groundY - doorH, doorW, doorH);
+  // Velvet rope
+  if (lvl >= 1) {
+    ctx.strokeStyle = '#cc0044';
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = '#888';
+    ctx.fillRect(doorX - 8, groundY - 12, 2, 10);
+    ctx.fillRect(doorX + doorW + 6, groundY - 12, 2, 10);
+    ctx.beginPath();
+    ctx.moveTo(doorX - 7, groundY - 9);
+    ctx.quadraticCurveTo(doorX + doorW / 2, groundY - 4, doorX + doorW + 7, groundY - 9);
+    ctx.stroke();
+  }
+}
+
+function drawIsoStashDetails(b, lvl, groundY) {
+  const topY = groundY - b.h;
+  // Brick pattern on front face
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 0.5;
+  for (let y = topY + 8; y < groundY; y += 7) {
+    ctx.beginPath();
+    ctx.moveTo(b.x, y); ctx.lineTo(b.x + b.w, y);
+    ctx.stroke();
+  }
+  // Steel door
+  const doorW = Math.min(18, b.w * 0.2);
+  const doorH = Math.min(26, b.h * 0.38);
+  const doorX = b.x + b.w / 2 - doorW / 2;
+  const doorY = groundY - doorH;
+  ctx.fillStyle = lvl >= 3 ? '#3a3a44' : lvl >= 1 ? '#4a4a55' : '#666';
+  ctx.fillRect(doorX, doorY, doorW, doorH);
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(doorX, doorY, doorW, doorH);
+  // Bolts
+  ctx.fillStyle = '#888';
+  for (let i = 0; i < Math.min(4, 2 + lvl); i++) {
+    ctx.beginPath();
+    ctx.arc(doorX + 2 + (doorW - 4) * (i / 3), doorY + 2, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Barred window
+  const winW = Math.min(18, b.w * 0.3);
+  const winH = 10;
+  const winX = b.x + 5;
+  const winY = topY + 8;
   ctx.fillStyle = '#111';
   ctx.fillRect(winX, winY, winW, winH);
-  // Window bars
   ctx.strokeStyle = '#999';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 0.8;
   for (let v = 0; v < 3; v++) {
     ctx.beginPath();
     ctx.moveTo(winX + (v + 1) * winW / 4, winY);
     ctx.lineTo(winX + (v + 1) * winW / 4, winY + winH);
     ctx.stroke();
   }
-  // Cash sacks
   if (lvl >= 1) {
     ctx.fillStyle = '#c9a670';
-    const sackCount = Math.min(3, lvl);
-    for (let s = 0; s < sackCount; s++) {
-      const sx = winX + 2 + s * 5;
+    for (let s = 0; s < Math.min(3, lvl); s++) {
       ctx.beginPath();
-      ctx.ellipse(sx, winY + winH - 3, 2, 3, 0, 0, Math.PI * 2);
+      ctx.ellipse(winX + 2 + s * 5, winY + winH - 2, 2, 2.5, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    // $ on sacks
-    ctx.fillStyle = '#000';
-    ctx.font = 'bold 5px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText('$', winX + 1, winY + winH - 2);
   }
-
-  // Small dollar sign above door
   if (lvl >= 2) {
     ctx.save();
     ctx.fillStyle = '#ffd700';
     ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 6;
-    ctx.font = 'bold 10px Arial';
+    ctx.shadowBlur = 5;
+    ctx.font = 'bold 9px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('$', doorX + doorW / 2, doorY - 2);
     ctx.restore();
   }
 }
 
-function drawVaultBuilding(b, lvl, selected, streetY) {
-  // Bank-like look: stone exterior, columns, gold arch
-  const bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-  bGrad.addColorStop(0, '#3c3c4a');
-  bGrad.addColorStop(1, '#252530');
-  ctx.fillStyle = bGrad;
-  ctx.fillRect(b.x, b.y + 6, b.w, b.h - 6);
-
-  // Pediment / triangular top
-  ctx.fillStyle = '#55556a';
-  ctx.beginPath();
-  ctx.moveTo(b.x - 2, b.y + 6);
-  ctx.lineTo(b.x + b.w / 2, b.y - 6);
-  ctx.lineTo(b.x + b.w + 2, b.y + 6);
-  ctx.closePath();
-  ctx.fill();
-
-  // Selection glow
-  if (selected) {
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#ffd700';
-    ctx.shadowBlur = 12;
-    ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
-    ctx.shadowBlur = 0;
-  }
-
-  // Columns
+function drawIsoVaultDetails(b, lvl, groundY) {
+  const topY = groundY - b.h;
+  // Columns on front face
   const colCount = 3;
-  const colW = Math.max(3, b.w * 0.09);
-  const colSpacing = (b.w - colW * colCount) / (colCount + 1);
+  const colW = Math.max(3, b.w * 0.07);
+  const colGap = (b.w - colW * colCount) / (colCount + 1);
   ctx.fillStyle = '#d8d4c8';
   for (let c = 0; c < colCount; c++) {
-    const cx = b.x + colSpacing + c * (colW + colSpacing);
-    ctx.fillRect(cx, b.y + 10, colW, b.h - 26);
-    // Cap
-    ctx.fillRect(cx - 1, b.y + 8, colW + 2, 3);
-    ctx.fillRect(cx - 1, b.y + b.h - 16, colW + 2, 3);
+    const cx = b.x + colGap + c * (colW + colGap);
+    ctx.fillRect(cx, topY + 14, colW, b.h - 28);
+    ctx.fillRect(cx - 1, topY + 12, colW + 2, 2);
+    ctx.fillRect(cx - 1, groundY - 14, colW + 2, 2);
   }
-
-  // Big vault door (circle) - gold at higher levels
-  const cx = b.x + b.w / 2;
-  const vaultR = Math.min(b.w * 0.22, b.h * 0.2);
-  const vaultY = b.y + b.h - vaultR - 6;
-  const doorColor = lvl >= 3 ? '#ffd700' : lvl >= 1 ? '#cccccc' : '#666';
-  ctx.fillStyle = doorColor;
+  // Vault door circle
+  const vx = b.x + b.w / 2;
+  const vr = Math.min(b.w * 0.18, b.h * 0.16);
+  const vy = groundY - vr - 8;
+  ctx.fillStyle = lvl >= 3 ? '#ffd700' : lvl >= 1 ? '#ccc' : '#666';
   ctx.beginPath();
-  ctx.arc(cx, vaultY, vaultR, 0, Math.PI * 2);
+  ctx.arc(vx, vy, vr, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1;
   ctx.stroke();
-  // Spokes (only if owned)
   if (lvl >= 1) {
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.8;
     for (let s = 0; s < 4; s++) {
       const a = s * Math.PI / 4;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * vaultR * 0.3, vaultY + Math.sin(a) * vaultR * 0.3);
-      ctx.lineTo(cx + Math.cos(a) * vaultR * 0.9, vaultY + Math.sin(a) * vaultR * 0.9);
+      ctx.moveTo(vx + Math.cos(a) * vr * 0.3, vy + Math.sin(a) * vr * 0.3);
+      ctx.lineTo(vx + Math.cos(a) * vr * 0.85, vy + Math.sin(a) * vr * 0.85);
       ctx.stroke();
     }
-    // Handle
     ctx.fillStyle = '#222';
     ctx.beginPath();
-    ctx.arc(cx, vaultY, vaultR * 0.15, 0, Math.PI * 2);
+    ctx.arc(vx, vy, vr * 0.15, 0, Math.PI * 2);
     ctx.fill();
   } else {
-    // Padlock overlay for locked vault
     ctx.fillStyle = '#222';
-    ctx.fillRect(cx - 3, vaultY - 2, 6, 6);
+    ctx.fillRect(vx - 3, vy - 2, 6, 5);
     ctx.strokeStyle = '#888';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(cx, vaultY - 3, 3, Math.PI, 0);
+    ctx.arc(vx, vy - 3, 3, Math.PI, 0);
     ctx.stroke();
   }
-
-  // "BANK" sign on pediment
   if (lvl >= 1) {
     ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold ' + Math.min(7, b.w * 0.12) + 'px Arial Black, Impact, sans-serif';
+    ctx.font = 'bold ' + Math.min(7, b.w * 0.07) + 'px Arial Black, Impact, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('BANK', cx, b.y + 4);
+    ctx.fillText('BANK', vx, topY + 8);
   }
 }
 
@@ -4994,10 +4982,10 @@ function handleBlockClick(clientX, clientY) {
     return;
   }
 
-  // Check building clicks (buildings have scroll-adjusted x positions)
-  for (let i = 0; i < layout.count; i++) {
+  // Check building clicks (iso polygon hit test, front-to-back priority)
+  for (let i = layout.count - 1; i >= 0; i--) {
     const b = layout.buildings[i];
-    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+    if (isoBoxContains(cx, cy, b, layout.streetY)) {
       blockSelectedBuilding = i;
       if (b.key === 'vault' && buildingLevels.vault > 0) {
         applyVaultInterest();
