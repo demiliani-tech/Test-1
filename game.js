@@ -550,6 +550,7 @@ let shopSelection = -1; // currently highlighted item
 let bullets = []; // projectiles from guns
 
 // --- Block / Home system (persistent) ---
+let godMode = false;
 let savedChains = parseInt(localStorage.getItem('hrSavedChains') || '0');
 let blockSelectedBuilding = -1; // which building is tapped for upgrade panel
 let blockScrollX = 0;
@@ -783,6 +784,7 @@ let jumpPressed = false;
 let jumpHeld = false;
 
 function goToBlock() {
+  if (godMode) savedChains = 999999;
   state = STATE.BLOCK;
   blockSelectedBuilding = -1;
   showScreen(null);
@@ -930,6 +932,11 @@ document.getElementById('jump-btn').addEventListener('touchend', e => {
 
 document.getElementById('start-btn').addEventListener('click', goToBlock);
 document.getElementById('retry-btn').addEventListener('click', goToBlock);
+document.getElementById('godmode-btn').addEventListener('click', function() {
+  godMode = !godMode;
+  this.textContent = godMode ? '⚡ GOD MODE: ON ⚡' : '⚡ GOD MODE ⚡';
+  this.style.background = godMode ? '#0f0' : '#ff0';
+});
 
 // --- Screens ---
 function showScreen(id) {
@@ -1472,8 +1479,10 @@ function update() {
           continue;
         }
         bullets.splice(i, 1);
-        player.dead = true;
-        killPlayer();
+        if (!godMode) {
+          player.dead = true;
+          killPlayer();
+        }
         continue;
       }
     }
@@ -1650,8 +1659,11 @@ function update() {
           }
           continue;
         }
-        killPlayer();
-        return;
+        if (!godMode) {
+          killPlayer();
+          return;
+        }
+        player.invincible = 30;
       }
     }
   }
