@@ -3759,11 +3759,11 @@ const ISO_ZS = 0.65;
 let isoOffX = 0, isoOffY = 0;
 
 const BLOCK_BLDG_WORLD = [
-  { key: 'trapHouse',  wx: 30,  wy: 10,  ww: 90, wd: 65, baseH: 70 },
-  { key: 'garage',     wx: 250, wy: 0,   ww: 100, wd: 60, baseH: 50 },
-  { key: 'clothing',   wx: 490, wy: 10,  ww: 85, wd: 65, baseH: 60 },
-  { key: 'stashHouse', wx: 140, wy: 200, ww: 85, wd: 60, baseH: 55 },
-  { key: 'vault',      wx: 380, wy: 195, ww: 95, wd: 65, baseH: 60 },
+  { key: 'trapHouse',  wx: 30,  wy: 10,  ww: 70, wd: 50, baseH: 45, hGrow: 8, wGrow: 8, dGrow: 5 },
+  { key: 'garage',     wx: 250, wy: 0,   ww: 80, wd: 50, baseH: 35, hGrow: 5, wGrow: 10, dGrow: 4 },
+  { key: 'clothing',   wx: 490, wy: 10,  ww: 65, wd: 50, baseH: 45, hGrow: 12, wGrow: 8, dGrow: 5 },
+  { key: 'stashHouse', wx: 140, wy: 200, ww: 65, wd: 45, baseH: 40, hGrow: 6, wGrow: 8, dGrow: 5 },
+  { key: 'vault',      wx: 380, wy: 195, ww: 75, wd: 55, baseH: 45, hGrow: 7, wGrow: 7, dGrow: 4 },
 ];
 
 function wts(wx, wy, wz) {
@@ -3780,8 +3780,8 @@ function getBlockWorldInfo() {
   let minSY = Infinity, maxSY = -Infinity;
   for (const bd of BLOCK_BLDG_WORLD) {
     const lvl = buildingLevels[bd.key] || 0;
-    const growW = lvl * 8, growD = lvl * 5;
-    const bh = bd.baseH + lvl * 14;
+    const growW = lvl * (bd.wGrow||6), growD = lvl * (bd.dGrow||4);
+    const bh = bd.baseH + lvl * (bd.hGrow||6);
     const eww = bd.ww + growW, ewd = bd.wd + growD;
     for (const [dwx, dwy] of [[0,0],[eww,0],[0,ewd],[eww,ewd]]) {
       const sx = (bd.wx + dwx - bd.wy - dwy) * ISO_XS;
@@ -3809,8 +3809,8 @@ function getBlockLayout() {
   for (let i = 0; i < BLOCK_BLDG_WORLD.length; i++) {
     const bd = BLOCK_BLDG_WORLD[i];
     const lvl = buildingLevels[bd.key] || 0;
-    const growW = lvl * 8, growD = lvl * 5;
-    const bh = bd.baseH + lvl * 14;
+    const growW = lvl * (bd.wGrow||6), growD = lvl * (bd.dGrow||4);
+    const bh = bd.baseH + lvl * (bd.hGrow||6);
     const eww = bd.ww + growW, ewd = bd.wd + growD;
     const gNW = wts(bd.wx, bd.wy, 0);
     const gNE = wts(bd.wx + eww, bd.wy, 0);
@@ -4111,38 +4111,38 @@ function isoBldgContains(px, py, sil) {
 var ISO_BLDG_STYLES_BY_LVL = {
   trapHouse: [
     {lw:'#4a2820',rw:'#2a1210',rf:'#5a3028',rf2:'#3a1810',trim:'#2a1208'},
-    {lw:'#5a3028',rw:'#3a1a15',rf:'#6a3a30',rf2:'#4a2018',trim:'#3a1a10'},
-    {lw:'#6a3a30',rw:'#4a2218',rf:'#7a4a38',rf2:'#5a2a20',trim:'#4a2a18'},
-    {lw:'#7a4838',rw:'#5a2a20',rf:'#8a5a40',rf2:'#6a3828',trim:'#ffa500'},
-    {lw:'#8a5840',rw:'#6a3828',rf:'#9a6a48',rf2:'#7a4830',trim:'#ffd700'},
+    {lw:'#4e2c22',rw:'#2e1412',rf:'#5e3228',rf2:'#3e1a12',trim:'#3a1a10'},
+    {lw:'#523018',rw:'#321815',rf:'#62362a',rf2:'#421e14',trim:'#4a2a18'},
+    {lw:'#563420',rw:'#361a18',rf:'#663a2e',rf2:'#462218',trim:'#4a3020'},
+    {lw:'#5a3828',rw:'#3a1e1a',rf:'#6a3e32',rf2:'#4a261a',trim:'#5a3828'},
   ],
   garage: [
-    {lw:'#3a4a4a',rw:'#1a2a2a',rf:'#455555',rf2:'#2a3a3a',trim:'#1a2525'},
-    {lw:'#4a5a5a',rw:'#2a3a3a',rf:'#556565',rf2:'#3a4a4a',trim:'#2a3535'},
-    {lw:'#5a6a6a',rw:'#3a4a4a',rf:'#657575',rf2:'#4a5a5a',trim:'#4a8aaa'},
-    {lw:'#6a7a7a',rw:'#4a5a5a',rf:'#758585',rf2:'#5a6a6a',trim:'#5aaacc'},
-    {lw:'#7a8888',rw:'#5a6868',rf:'#859090',rf2:'#6a7878',trim:'#6accee'},
+    {lw:'#3a4848',rw:'#1a2828',rf:'#445050',rf2:'#2a3535',trim:'#1a2525'},
+    {lw:'#3e4c4c',rw:'#1e2c2c',rf:'#485454',rf2:'#2e3838',trim:'#2a3535'},
+    {lw:'#424e4e',rw:'#222e2e',rf:'#4c5858',rf2:'#323c3c',trim:'#2a4a4a'},
+    {lw:'#465252',rw:'#263232',rf:'#505c5c',rf2:'#364040',trim:'#3a5a5a'},
+    {lw:'#4a5656',rw:'#2a3636',rf:'#546060',rf2:'#3a4444',trim:'#4a6a6a'},
   ],
   clothing: [
-    {lw:'#2a1040',rw:'#1a0828',rf:'#1a0830',rf2:'#100520',trim:'#aa00aa'},
-    {lw:'#3a1850',rw:'#280e38',rf:'#2a1240',rf2:'#1a0a30',trim:'#cc00cc'},
-    {lw:'#4a2060',rw:'#381648',rf:'#3a1a50',rf2:'#2a1240',trim:'#ee00ee'},
-    {lw:'#5a2870',rw:'#481e58',rf:'#4a2260',rf2:'#3a1a50',trim:'#ff00ff'},
-    {lw:'#6a3080',rw:'#582668',rf:'#5a2a70',rf2:'#4a2260',trim:'#ff44ff'},
+    {lw:'#221038',rw:'#140820',rf:'#1a0828',rf2:'#0e0518',trim:'#8800aa'},
+    {lw:'#281440',rw:'#1a0a28',rf:'#200c30',rf2:'#14081e',trim:'#aa00cc'},
+    {lw:'#2e1848',rw:'#1e0c30',rf:'#261038',rf2:'#1a0a24',trim:'#cc00ee'},
+    {lw:'#341c50',rw:'#221038',rf:'#2c1440',rf2:'#200e2a',trim:'#dd00ff'},
+    {lw:'#3a2058',rw:'#281440',rf:'#321848',rf2:'#261230',trim:'#ee22ff'},
   ],
   stashHouse: [
-    {lw:'#6a4a2a',rw:'#4a2a18',rf:'#7a5a38',rf2:'#4a3018',trim:'#3a2010'},
-    {lw:'#7a5a3a',rw:'#5a3a22',rf:'#8a6a48',rf2:'#5a4028',trim:'#4a3018'},
-    {lw:'#8a6a48',rw:'#6a4a30',rf:'#9a7a58',rf2:'#6a5038',trim:'#6a5030'},
-    {lw:'#9a7a58',rw:'#7a5a38',rf:'#aa8a68',rf2:'#7a6048',trim:'#aa8844'},
-    {lw:'#aa8a68',rw:'#8a6a48',rf:'#ba9a78',rf2:'#8a7058',trim:'#ccaa55'},
+    {lw:'#5a4028',rw:'#3a2418',rf:'#604830',rf2:'#3e2a18',trim:'#2a1a10'},
+    {lw:'#5e4428',rw:'#3e2818',rf:'#644c30',rf2:'#422e18',trim:'#3a2818'},
+    {lw:'#62482a',rw:'#422a1a',rf:'#685032',rf2:'#46301a',trim:'#4a3020'},
+    {lw:'#664c2c',rw:'#462c1c',rf:'#6c5434',rf2:'#4a321c',trim:'#5a3828'},
+    {lw:'#6a502e',rw:'#4a2e1e',rf:'#705836',rf2:'#4e341e',trim:'#6a4030'},
   ],
   vault: [
-    {lw:'#454558',rw:'#2a2a3a',rf:'#505068',rf2:'#3a3a4a',trim:'#aa8800'},
-    {lw:'#555568',rw:'#3a3a4a',rf:'#606078',rf2:'#4a4a5a',trim:'#ccaa00'},
-    {lw:'#656578',rw:'#4a4a5a',rf:'#707088',rf2:'#5a5a6a',trim:'#eebb00'},
-    {lw:'#757588',rw:'#5a5a6a',rf:'#808098',rf2:'#6a6a7a',trim:'#ffcc00'},
-    {lw:'#858598',rw:'#6a6a7a',rf:'#9090a8',rf2:'#7a7a8a',trim:'#ffd700'},
+    {lw:'#404050',rw:'#282838',rf:'#484860',rf2:'#323242',trim:'#887722'},
+    {lw:'#454558',rw:'#2c2c3c',rf:'#4c4c64',rf2:'#363646',trim:'#998822'},
+    {lw:'#4a4a5e',rw:'#303040',rf:'#505068',rf2:'#3a3a4a',trim:'#aa9922'},
+    {lw:'#4e4e62',rw:'#343444',rf:'#54546c',rf2:'#3e3e4e',trim:'#bbaa33'},
+    {lw:'#525268',rw:'#383848',rf:'#585870',rf2:'#424252',trim:'#ccbb44'},
   ],
 };
 function getIsoStyle(key, lvl) {
@@ -4151,29 +4151,57 @@ function getIsoStyle(key, lvl) {
 }
 
 function drawIsoPalmTree(sx, sy) {
-  ctx.strokeStyle='#5a3a1a';ctx.lineWidth=3;
-  ctx.beginPath();ctx.moveTo(sx,sy);ctx.quadraticCurveTo(sx+4,sy-18,sx+2,sy-30);ctx.stroke();
-  ctx.fillStyle='#2a6a1a';
-  for(var a=0;a<5;a++){var ang=a*Math.PI*2/5-Math.PI/2;
-    ctx.beginPath();ctx.ellipse(sx+2+Math.cos(ang)*8,sy-30+Math.sin(ang)*5,10,3,ang,0,Math.PI*2);ctx.fill();}
-  ctx.fillStyle='#1a5a10';
+  // Trunk
+  ctx.strokeStyle='#4a2a12';ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(sx,sy);ctx.quadraticCurveTo(sx+5,sy-22,sx+3,sy-40);ctx.stroke();
+  ctx.strokeStyle='#5a3a1a';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(sx,sy);ctx.quadraticCurveTo(sx+5,sy-22,sx+3,sy-40);ctx.stroke();
+  // Fronds - drooping leaves
+  ctx.fillStyle='#1a5a12';
+  for(var a=0;a<6;a++){var ang=a*Math.PI*2/6-Math.PI/2;
+    ctx.beginPath();ctx.ellipse(sx+3+Math.cos(ang)*10,sy-40+Math.sin(ang)*6,12,3,ang+0.3,0,Math.PI*2);ctx.fill();}
+  ctx.fillStyle='#226a18';
   for(var a2=0;a2<5;a2++){var ang2=a2*Math.PI*2/5;
-    ctx.beginPath();ctx.ellipse(sx+2+Math.cos(ang2)*6,sy-32+Math.sin(ang2)*4,7,2,ang2,0,Math.PI*2);ctx.fill();}
+    ctx.beginPath();ctx.ellipse(sx+3+Math.cos(ang2)*7,sy-42+Math.sin(ang2)*4,8,2.5,ang2,0,Math.PI*2);ctx.fill();}
+  // Coconuts
+  ctx.fillStyle='#5a3a1a';
+  ctx.beginPath();ctx.arc(sx+2,sy-38,1.5,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(sx+5,sy-39,1.5,0,Math.PI*2);ctx.fill();
 }
 
 function drawIsoCarProp(sx, sy, color) {
+  // Shadow
+  ctx.save();ctx.globalAlpha=0.2;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(sx,sy+2,14,5,0,0,Math.PI*2);ctx.fill();ctx.restore();
+  // Body - isometric diamond shape
   ctx.fillStyle=color;
   ctx.beginPath();
-  ctx.moveTo(sx-10,sy);ctx.lineTo(sx-8,sy-4);ctx.lineTo(sx+8,sy-4);ctx.lineTo(sx+10,sy);ctx.closePath();ctx.fill();
-  ctx.fillStyle='rgba(100,200,255,0.4)';
-  ctx.beginPath();ctx.moveTo(sx-5,sy-4);ctx.lineTo(sx-3,sy-7);ctx.lineTo(sx+3,sy-7);ctx.lineTo(sx+5,sy-4);ctx.closePath();ctx.fill();
-  ctx.fillStyle='#111';ctx.beginPath();ctx.arc(sx-6,sy+1,2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(sx+6,sy+1,2,0,Math.PI*2);ctx.fill();
+  ctx.moveTo(sx,sy-8);ctx.lineTo(sx+13,sy-2);ctx.lineTo(sx,sy+4);ctx.lineTo(sx-13,sy-2);ctx.closePath();ctx.fill();
+  // Darker side panels
+  ctx.fillStyle='rgba(0,0,0,0.2)';
+  ctx.beginPath();ctx.moveTo(sx,sy+4);ctx.lineTo(sx+13,sy-2);ctx.lineTo(sx,sy-2);ctx.closePath();ctx.fill();
+  // Windshield
+  ctx.fillStyle='rgba(80,160,220,0.35)';
+  ctx.beginPath();ctx.moveTo(sx-2,sy-6);ctx.lineTo(sx+6,sy-4);ctx.lineTo(sx+2,sy-1);ctx.lineTo(sx-6,sy-3);ctx.closePath();ctx.fill();
+  // Headlights
+  ctx.fillStyle='rgba(255,240,180,0.6)';ctx.beginPath();ctx.arc(sx-10,sy-1,1.5,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(sx+1,sy+3,1.5,0,Math.PI*2);ctx.fill();
+  // Taillights
+  ctx.fillStyle='rgba(255,30,30,0.5)';ctx.beginPath();ctx.arc(sx+10,sy-1,1,0,Math.PI*2);ctx.fill();
 }
 
 function drawIsoPersonProp(sx, sy, shirtColor) {
-  ctx.fillStyle='#222';ctx.fillRect(sx-1,sy-2,2,4);
-  ctx.fillStyle=shirtColor;ctx.fillRect(sx-2,sy-5,4,4);
-  ctx.fillStyle='#daa06d';ctx.beginPath();ctx.arc(sx,sy-7,2,0,Math.PI*2);ctx.fill();
+  // Shadow
+  ctx.save();ctx.globalAlpha=0.15;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(sx,sy+1,4,2,0,0,Math.PI*2);ctx.fill();ctx.restore();
+  // Legs
+  ctx.fillStyle='#1a1a2a';ctx.fillRect(sx-3,sy-3,2,4);ctx.fillRect(sx+1,sy-3,2,4);
+  // Shoes
+  ctx.fillStyle='#111';ctx.fillRect(sx-4,sy,3,2);ctx.fillRect(sx+1,sy,3,2);
+  // Torso
+  ctx.fillStyle=shirtColor;ctx.fillRect(sx-3,sy-8,6,6);
+  // Head
+  ctx.fillStyle='#c68642';ctx.beginPath();ctx.arc(sx,sy-10,3,0,Math.PI*2);ctx.fill();
+  // Hair/hat
+  ctx.fillStyle='#222';ctx.beginPath();ctx.arc(sx,sy-11,2.5,Math.PI,0);ctx.fill();
 }
 
 function drawBldgExteriorProps(b, lvl, key) {
