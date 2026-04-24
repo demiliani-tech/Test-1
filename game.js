@@ -4226,43 +4226,67 @@ function drawBldgExteriorProps(b, lvl, key) {
       drawIsoCarProp(b.gNE.x+18,b.gNE.y+10,'#111');
     }
   } else if(key==='garage'){
-    // Chop Shop exterior - grows from empty lot to full car operation
-    // Fence/lot boundary at lvl 2+
-    if(lvl>=2){
-      ctx.strokeStyle='#555';ctx.lineWidth=1;
-      ctx.beginPath();ctx.moveTo(b.gNE.x+4,b.gNE.y);ctx.lineTo(b.gNE.x+35+lvl*6,b.gNE.y-6);ctx.lineTo(b.gSE.x+35+lvl*6,b.gSE.y-6);ctx.stroke();
-      // Fence posts
-      for(var fp=0;fp<3+lvl;fp++){var fpx=b.gNE.x+6+fp*8,fpy=b.gNE.y-1-fp*0.4;ctx.fillStyle='#666';ctx.fillRect(fpx,fpy-5,2,6);}
+    // Concrete lot pad behind building — grows with level
+    if(lvl>=1){
+      var lotW=15+lvl*10,lotD=8+lvl*4;
+      var l1=wts(b.wx+b.ww+4,b.wy,0),l2=wts(b.wx+b.ww+4+lotW,b.wy,0);
+      var l3=wts(b.wx+b.ww+4+lotW,b.wy+b.wd+lotD,0),l4=wts(b.wx+b.ww+4,b.wy+b.wd+lotD,0);
+      ctx.fillStyle='#1a1c1a';ctx.beginPath();ctx.moveTo(l1.x,l1.y);ctx.lineTo(l2.x,l2.y);ctx.lineTo(l3.x,l3.y);ctx.lineTo(l4.x,l4.y);ctx.closePath();ctx.fill();
     }
-    // Cars outside - more with each level
-    if(lvl>=2){drawIsoCarProp(b.gNE.x+18,b.gNE.y+4,'#cc2200');}
-    if(lvl>=3){drawIsoCarProp(b.gNE.x+30,b.gNE.y+2,'#2244cc');drawIsoCarProp(b.gSE.x+16,b.gSE.y-6,'#ffaa00');}
-    if(lvl>=4){drawIsoCarProp(b.gNE.x+42,b.gNE.y,'#aa00ff');drawIsoCarProp(b.gSE.x+30,b.gSE.y-8,'#22cc44');drawIsoCarProp(b.gSW.x-14,b.gSW.y+4,'#ff4444');}
-    // Toolboxes and equipment outside
-    if(lvl>=2){var tb1=b.gSW;ctx.fillStyle='#cc2222';ctx.fillRect(tb1.x-10,tb1.y-4,6,4);ctx.fillStyle='#aa1818';ctx.fillRect(tb1.x-10,tb1.y-6,6,2);}
-    if(lvl>=3){var tb2={x:b.gSW.x-16,y:b.gSW.y+2};ctx.fillStyle='#2266cc';ctx.fillRect(tb2.x,tb2.y-3,5,3);ctx.fillStyle='#555';ctx.fillRect(tb2.x-2,tb2.y-5,3,2);}
-    // Tires stacked
-    if(lvl>=3){var tp={x:b.gNE.x+8,y:b.gNE.y+8};ctx.fillStyle='#222';for(var t=0;t<3;t++){ctx.beginPath();ctx.ellipse(tp.x,tp.y-t*3,4,2.5,0,0,Math.PI*2);ctx.fill();}ctx.fillStyle='#333';ctx.beginPath();ctx.ellipse(tp.x,tp.y-6,3,1.8,0,0,Math.PI*2);ctx.fill();}
+    // Chain-link fence around lot at L2+
+    if(lvl>=2){
+      var fLen=20+lvl*12,nPosts=3+lvl;
+      ctx.strokeStyle='#555';ctx.lineWidth=0.8;
+      var ff1=wts(b.wx+b.ww+6,b.wy-2,0),ff2=wts(b.wx+b.ww+6+fLen,b.wy-2,0);
+      var ff3=wts(b.wx+b.ww+6+fLen,b.wy+b.wd+6+lvl*3,0);
+      ctx.beginPath();ctx.moveTo(ff1.x,ff1.y);ctx.lineTo(ff2.x,ff2.y);ctx.lineTo(ff3.x,ff3.y);ctx.stroke();
+      for(var fp=0;fp<=nPosts;fp++){
+        var frac=fp/nPosts;
+        var fpx=ff1.x+(ff2.x-ff1.x)*frac,fpy=ff1.y+(ff2.y-ff1.y)*frac;
+        ctx.fillStyle='#555';ctx.fillRect(fpx-1,fpy-7,2,8);
+      }
+      // Diamond mesh pattern on fence
+      ctx.strokeStyle='rgba(100,100,100,0.15)';ctx.lineWidth=0.3;
+      for(var dm=0;dm<nPosts*2;dm++){var dFrac=dm/(nPosts*2);
+        var dx=ff1.x+(ff2.x-ff1.x)*dFrac,dy=ff1.y+(ff2.y-ff1.y)*dFrac;
+        ctx.beginPath();ctx.moveTo(dx,dy);ctx.lineTo(dx+2,dy-6);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(dx,dy);ctx.lineTo(dx-2,dy-6);ctx.stroke();
+      }
+    }
+    // Cars outside lot — more with each level
+    if(lvl>=1){drawIsoCarProp(b.gNE.x+14,b.gNE.y+3,'#881100');}
+    if(lvl>=2){drawIsoCarProp(b.gNE.x+28,b.gNE.y+1,'#1a3388');drawIsoCarProp(b.gSE.x+12,b.gSE.y-4,'#aa7700');}
+    if(lvl>=3){drawIsoCarProp(b.gNE.x+42,b.gNE.y-1,'#666');drawIsoCarProp(b.gSE.x+26,b.gSE.y-6,'#116622');drawIsoCarProp(b.gSW.x-16,b.gSW.y+3,'#cc2244');}
+    if(lvl>=4){drawIsoCarProp(b.gNE.x+56,b.gNE.y-3,'#331166');drawIsoCarProp(b.gSW.x-30,b.gSW.y+5,'#884400');drawIsoCarProp(b.gSE.x+40,b.gSE.y-8,'#222');}
+    // Tire stacks — grow with level
+    if(lvl>=2){var tp={x:b.gSW.x-6,y:b.gSW.y+2};ctx.fillStyle='#1a1a1a';for(var t=0;t<2+lvl;t++){ctx.beginPath();ctx.ellipse(tp.x,tp.y-t*2.5,5,3,0,0,Math.PI*2);ctx.fill();}ctx.fillStyle='#282828';ctx.beginPath();ctx.ellipse(tp.x,tp.y-(2+lvl)*2.5,4,2.2,0,0,Math.PI*2);ctx.fill();}
+    if(lvl>=3){var tp2={x:b.gSW.x-14,y:b.gSW.y+4};ctx.fillStyle='#1a1a1a';for(var t2=0;t2<3;t2++){ctx.beginPath();ctx.ellipse(tp2.x,tp2.y-t2*2.5,4,2.5,0,0,Math.PI*2);ctx.fill();}}
+    // Red toolbox near entrance
+    if(lvl>=1){var tb={x:b.gSW.x+2,y:b.gSW.y+2};ctx.fillStyle='#881818';ctx.fillRect(tb.x,tb.y-4,7,4);ctx.fillStyle='#661212';ctx.fillRect(tb.x,tb.y-6,7,2);ctx.fillStyle='#aaa';ctx.fillRect(tb.x+2,tb.y-5,3,1);}
     // Oil drums
-    if(lvl>=2){var od={x:b.gSE.x+6,y:b.gSE.y};ctx.fillStyle='#3a5a3a';ctx.fillRect(od.x,od.y-6,4,6);ctx.fillStyle='#4a6a4a';ctx.beginPath();ctx.ellipse(od.x+2,od.y-6,2.5,1.5,0,0,Math.PI*2);ctx.fill();}
-    // Mechanics (people in coveralls)
-    if(lvl>=3){drawIsoPersonProp(b.gSW.x-4,b.gSW.y+6,'#336');}
-    if(lvl>=4){drawIsoPersonProp(b.gNE.x+12,b.gNE.y+10,'#336');drawIsoPersonProp(b.gSE.x+8,b.gSE.y+4,'#446');}
+    if(lvl>=2){var od={x:b.gSE.x+4,y:b.gSE.y-1};ctx.fillStyle='#2a4a2a';ctx.fillRect(od.x,od.y-7,5,7);ctx.fillStyle='#3a5a3a';ctx.beginPath();ctx.ellipse(od.x+2.5,od.y-7,3,1.8,0,0,Math.PI*2);ctx.fill();}
+    if(lvl>=3){var od2={x:b.gSE.x+10,y:b.gSE.y-2};ctx.fillStyle='#4a2a1a';ctx.fillRect(od2.x,od2.y-7,5,7);ctx.fillStyle='#5a3a2a';ctx.beginPath();ctx.ellipse(od2.x+2.5,od2.y-7,3,1.8,0,0,Math.PI*2);ctx.fill();}
+    // Mechanics in coveralls
+    if(lvl>=2){drawIsoPersonProp(b.gSW.x-2,b.gSW.y+7,'#2a3a55');}
+    if(lvl>=3){drawIsoPersonProp(b.gNE.x+10,b.gNE.y+8,'#2a3a55');}
+    if(lvl>=4){drawIsoPersonProp(b.gSE.x+6,b.gSE.y+3,'#2a3a55');drawIsoPersonProp(b.gNE.x+22,b.gNE.y+6,'#2a3a55');}
   } else if(key==='trapHouse'){
-    // L1: quiet, one person on porch
-    // L2: porch light on, person + car
-    // L3: busier, street lamp, more people, car
-    // L4: purple lit windows, yellow car, crowd
-    // L5: mansion vibe, multiple cars, people everywhere, street lamps
-    if(lvl>=1){drawIsoPersonProp(b.gSW.x-4,b.gSW.y+4,'#884422');}
-    if(lvl>=2){drawIsoPersonProp(gMid.x+14,gMid.y+8,'#aa4444');}
-    if(lvl>=3){drawIsoCarProp(gMid.x+22,gMid.y+4,'#ccaa00');drawIsoPersonProp(b.gSW.x-10,b.gSW.y+8,'#664422');drawIsoPersonProp(gMid.x+6,gMid.y+12,'#cc4444');}
-    if(lvl>=4){drawIsoCarProp(b.gNE.x+16,b.gNE.y+6,'#aa22cc');drawIsoCarProp(b.gSE.x+12,b.gSE.y-4,'#4444cc');drawIsoPersonProp(b.gNE.x+6,b.gNE.y+10,'#662244');drawIsoPersonProp(b.gSW.x-16,b.gSW.y+6,'#886644');drawIsoPersonProp(gMid.x+30,gMid.y+2,'#cc6622');}
-    // Street lamp at lvl 3+
-    if(lvl>=3){var sl={x:b.gSW.x-18,y:b.gSW.y-2};ctx.strokeStyle='#555';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(sl.x,sl.y);ctx.lineTo(sl.x,sl.y-22);ctx.stroke();ctx.strokeStyle='#666';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(sl.x,sl.y-22);ctx.lineTo(sl.x+6,sl.y-23);ctx.stroke();ctx.save();ctx.fillStyle='#ffa500';ctx.shadowColor='#ffa500';ctx.shadowBlur=8;ctx.globalAlpha=0.5+0.2*Math.sin(blockFrameCount*0.04);ctx.beginPath();ctx.arc(sl.x+6,sl.y-23,2.5,0,Math.PI*2);ctx.fill();ctx.restore();}
-    if(lvl>=4){var sl2={x:b.gNE.x+30,y:b.gNE.y-4};ctx.strokeStyle='#555';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(sl2.x,sl2.y);ctx.lineTo(sl2.x,sl2.y-22);ctx.stroke();ctx.strokeStyle='#666';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(sl2.x,sl2.y-22);ctx.lineTo(sl2.x-6,sl2.y-23);ctx.stroke();ctx.save();ctx.fillStyle='#ffa500';ctx.shadowColor='#ffa500';ctx.shadowBlur=8;ctx.globalAlpha=0.5+0.2*Math.sin(blockFrameCount*0.05);ctx.beginPath();ctx.arc(sl2.x-6,sl2.y-23,2.5,0,Math.PI*2);ctx.fill();ctx.restore();}
-    // Trash/boxes on porch at lvl 2+
-    if(lvl>=2){ctx.fillStyle='#4a3a2a';ctx.fillRect(b.gSW.x+2,b.gSW.y-3,4,3);ctx.fillRect(b.gSW.x+7,b.gSW.y-2,3,2);}
+    // Porch overhang — small concrete step
+    var pW=b.ww*0.4,pD=6+lvl*2;
+    var p1=wts(b.wx+b.ww*0.3,b.wy+b.wd,0),p2=wts(b.wx+b.ww*0.7,b.wy+b.wd,0);
+    var p3=wts(b.wx+b.ww*0.7,b.wy+b.wd+pD,0),p4=wts(b.wx+b.ww*0.3,b.wy+b.wd+pD,0);
+    ctx.fillStyle='#1e1410';ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.lineTo(p3.x,p3.y);ctx.lineTo(p4.x,p4.y);ctx.closePath();ctx.fill();
+    // People on/near porch — busier with level
+    if(lvl>=1){drawIsoPersonProp(b.gSW.x-3,b.gSW.y+4,'#553322');}
+    if(lvl>=2){drawIsoPersonProp(gMid.x+10,gMid.y+6,'#882222');drawIsoPersonProp(b.gSW.x-8,b.gSW.y+7,'#444');}
+    if(lvl>=3){drawIsoPersonProp(gMid.x+4,gMid.y+10,'#662244');drawIsoPersonProp(b.gNE.x+4,b.gNE.y+6,'#883322');drawIsoCarProp(gMid.x+20,gMid.y+4,'#aa8800');}
+    if(lvl>=4){drawIsoPersonProp(b.gSW.x-14,b.gSW.y+6,'#553344');drawIsoPersonProp(gMid.x+16,gMid.y+12,'#664422');drawIsoPersonProp(b.gNE.x+8,b.gNE.y+10,'#442244');drawIsoCarProp(b.gNE.x+16,b.gNE.y+5,'#551188');drawIsoCarProp(b.gSE.x+10,b.gSE.y-3,'#333');}
+    // Trash bags & boxes on porch at L1+
+    if(lvl>=1){ctx.fillStyle='#222';ctx.beginPath();ctx.ellipse(b.gSW.x+4,b.gSW.y-1,3,2,0,0,Math.PI*2);ctx.fill();}
+    if(lvl>=2){ctx.fillStyle='#3a2a1a';ctx.fillRect(b.gSW.x+8,b.gSW.y-3,4,3);ctx.fillStyle='#222';ctx.beginPath();ctx.ellipse(b.gSW.x+14,b.gSW.y,3,2,0,0,Math.PI*2);ctx.fill();}
+    // Street lamp at L3+
+    if(lvl>=3){var sl={x:b.gSW.x-16,y:b.gSW.y};ctx.strokeStyle='#444';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(sl.x,sl.y);ctx.lineTo(sl.x,sl.y-20);ctx.stroke();ctx.strokeStyle='#555';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(sl.x,sl.y-20);ctx.lineTo(sl.x+5,sl.y-21);ctx.stroke();ctx.save();ctx.fillStyle='#ee9922';ctx.shadowColor='#ee9922';ctx.shadowBlur=6;ctx.globalAlpha=0.4+0.15*Math.sin(blockFrameCount*0.04);ctx.beginPath();ctx.arc(sl.x+5,sl.y-21,2,0,Math.PI*2);ctx.fill();ctx.restore();}
+    if(lvl>=4){var sl2={x:b.gNE.x+24,y:b.gNE.y-2};ctx.strokeStyle='#444';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(sl2.x,sl2.y);ctx.lineTo(sl2.x,sl2.y-20);ctx.stroke();ctx.strokeStyle='#555';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(sl2.x,sl2.y-20);ctx.lineTo(sl2.x-5,sl2.y-21);ctx.stroke();ctx.save();ctx.fillStyle='#ee9922';ctx.shadowColor='#ee9922';ctx.shadowBlur=6;ctx.globalAlpha=0.4+0.15*Math.sin(blockFrameCount*0.05);ctx.beginPath();ctx.arc(sl2.x-5,sl2.y-21,2,0,Math.PI*2);ctx.fill();ctx.restore();}
   } else if(key==='stashHouse'){
     // L1: small shack, boarded up, a crate outside
     // L2: boxes stacked outside, light in window
@@ -4425,57 +4449,55 @@ function drawBldgWallDetails(b, lvl, key) {
     // L2: bay open with green light, car silhouette inside
     // L3: two bays, both open, cars inside, tools
     // L4+: wide open bays, cars visible, bright green neon sign
-    var nBays=lvl>=3?2:1;
-    var bayW=0.84/nBays;
+    // Corrugated metal texture on left wall
+    ctx.strokeStyle='rgba(0,0,0,0.06)';ctx.lineWidth=0.5;
+    for(var cg=0.04;cg<0.96;cg+=0.03){var cg1=wallPt(lbl,lbr,ltl,ltr,0,cg),cg2=wallPt(lbl,lbr,ltl,ltr,1,cg);ctx.beginPath();ctx.moveTo(cg1.x,cg1.y);ctx.lineTo(cg2.x,cg2.y);ctx.stroke();}
+    // Garage bays — grow from 1 closed to 3 open
+    var nBays=lvl>=4?3:lvl>=2?2:1;
+    var bayW=0.88/nBays;
     for(var bay=0;bay<nBays;bay++){
-      var bx1=0.08+bay*bayW,bx2=bx1+bayW-0.02;
-      // Garage door frame
-      wallQuad(lbl,lbr,ltl,ltr,bx1,0.0,bx2,0.55,'#3a4248');
+      var bx1=0.06+bay*bayW,bx2=bx1+bayW-0.02;
+      wallQuad(lbl,lbr,ltl,ltr,bx1-0.01,0.0,bx2+0.01,0.56,'#1e2828');
       if(lvl<=1){
-        // Closed door with panels
-        wallQuad(lbl,lbr,ltl,ltr,bx1+0.01,0.01,bx2-0.01,0.54,'#4a5560');
-        for(var pan=0;pan<4;pan++){wallQuad(lbl,lbr,ltl,ltr,bx1+0.02,0.03+pan*0.13,bx2-0.02,0.04+pan*0.13,'#3a4550');}
-        wallQuad(lbl,lbr,ltl,ltr,(bx1+bx2)/2-0.05,0.02,(bx1+bx2)/2+0.05,0.04,'#888');
+        wallQuad(lbl,lbr,ltl,ltr,bx1,0.01,bx2,0.54,'#3a4448');
+        for(var pan=0;pan<5;pan++){wallQuad(lbl,lbr,ltl,ltr,bx1+0.01,0.02+pan*0.105,bx2-0.01,0.03+pan*0.105,'#2e3a3e');}
+        wallQuad(lbl,lbr,ltl,ltr,(bx1+bx2)/2-0.04,0.01,(bx1+bx2)/2+0.04,0.03,'#666');
       } else {
-        // Open bay - dark interior with green work light
-        wallQuad(lbl,lbr,ltl,ltr,bx1+0.01,0.0,bx2-0.01,0.5,'#0a0e0a');
-        // Green interior glow
-        ctx.save();var gi=wallPt(lbl,lbr,ltl,ltr,(bx1+bx2)/2,0.25);
-        var gg=ctx.createRadialGradient(gi.x,gi.y,0,gi.x,gi.y,15+lvl*3);
-        gg.addColorStop(0,'rgba(50,200,80,'+(0.12+lvl*0.04)+')');gg.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle=gg;ctx.fillRect(gi.x-25,gi.y-20,50,40);ctx.restore();
-        // Car silhouette inside bay
-        var carY=0.18;
-        wallQuad(lbl,lbr,ltl,ltr,bx1+0.06,carY,bx2-0.06,carY+0.12,'#1a1a1a');
-        wallQuad(lbl,lbr,ltl,ltr,bx1+0.1,carY+0.12,bx2-0.1,carY+0.17,'#151515');
-        // Headlights
-        var hl=wallPt(lbl,lbr,ltl,ltr,bx1+0.08,carY+0.06);
-        ctx.fillStyle='rgba(255,240,180,0.5)';ctx.beginPath();ctx.arc(hl.x,hl.y,1.5,0,Math.PI*2);ctx.fill();
-        var hr=wallPt(lbl,lbr,ltl,ltr,bx2-0.08,carY+0.06);
-        ctx.fillStyle='rgba(255,240,180,0.5)';ctx.beginPath();ctx.arc(hr.x,hr.y,1.5,0,Math.PI*2);ctx.fill();
-        // Lift/jack at higher levels
-        if(lvl>=3&&bay===0){wallQuad(lbl,lbr,ltl,ltr,bx1+0.04,0.0,bx1+0.06,0.15,'#cc3333');}
+        wallQuad(lbl,lbr,ltl,ltr,bx1,0.0,bx2,0.52,'#060a06');
+        // Fluorescent tube light across top of bay
+        var fl1=wallPt(lbl,lbr,ltl,ltr,bx1+0.03,0.48),fl2=wallPt(lbl,lbr,ltl,ltr,bx2-0.03,0.48);
+        ctx.strokeStyle='rgba(80,220,120,0.25)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(fl1.x,fl1.y);ctx.lineTo(fl2.x,fl2.y);ctx.stroke();
+        // Car inside — body + roof + headlights
+        var cc=['#881100','#1a3388','#aa7700','#551188'][bay%4];
+        wallQuad(lbl,lbr,ltl,ltr,bx1+0.04,0.08,bx2-0.04,0.2,cc);
+        wallQuad(lbl,lbr,ltl,ltr,bx1+0.08,0.2,bx2-0.08,0.28,'rgba(0,0,0,0.3)');
+        wallQuad(lbl,lbr,ltl,ltr,bx1+0.06,0.2,bx2-0.06,0.26,'rgba(60,140,200,0.2)');
+        var hl=wallPt(lbl,lbr,ltl,ltr,bx1+0.06,0.12);ctx.fillStyle='rgba(255,230,160,0.5)';ctx.beginPath();ctx.arc(hl.x,hl.y,1.5,0,Math.PI*2);ctx.fill();
+        var hr=wallPt(lbl,lbr,ltl,ltr,bx2-0.06,0.12);ctx.fillStyle='rgba(255,230,160,0.5)';ctx.beginPath();ctx.arc(hr.x,hr.y,1.5,0,Math.PI*2);ctx.fill();
+        // Hydraulic lift post (red) in first bay at L3+
+        if(lvl>=3&&bay===0){wallQuad(lbl,lbr,ltl,ltr,bx1+0.03,0.0,bx1+0.05,0.3,'#aa2222');wallQuad(lbl,lbr,ltl,ltr,bx2-0.05,0.0,bx2-0.03,0.3,'#aa2222');}
       }
     }
-    // "CHOP SHOP" sign - goes from plain to green neon
-    wallQuad(lbl,lbr,ltl,ltr,0.1,0.58,0.9,0.73,lvl>=2?'#2a3a2a':'#2a3a3a');
-    var cs=wallPt(lbl,lbr,ltl,ltr,0.5,0.68);
+    // Sign bar above bays
+    wallQuad(lbl,lbr,ltl,ltr,0.02,0.58,0.98,0.72,lvl>=2?'#1a2a1a':'#222e2e');
+    var cs=wallPt(lbl,lbr,ltl,ltr,0.5,0.67);
     ctx.save();
-    ctx.fillStyle=lvl>=3?'#44ee66':lvl>=2?'#33aa44':'#556';
-    if(lvl>=2){ctx.shadowColor='#33cc44';ctx.shadowBlur=4+lvl*3;}
-    ctx.font='bold '+(7+lvl)+'px Arial';ctx.textAlign='center';ctx.fillText('CHOP SHOP',cs.x,cs.y);ctx.restore();
-    // Green neon trim at lvl 3+
-    if(lvl>=3){ctx.save();ctx.strokeStyle='rgba(50,200,80,'+(0.3+lvl*0.08)+')';ctx.lineWidth=1.5;ctx.shadowColor='#33cc44';ctx.shadowBlur=6+lvl*2;
-      ctx.beginPath();ctx.moveTo(ltl.x,ltl.y);ctx.lineTo(ltr.x,ltr.y);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(lbl.x,lbl.y);ctx.lineTo(lbr.x,lbr.y);ctx.stroke();ctx.restore();}
-    // Upper windows
-    for(var uw=0;uw<2;uw++){wallQuad(lbl,lbr,ltl,ltr,0.1+uw*0.45,0.78,0.45+uw*0.45,0.9,uw<lvl?'rgba(100,200,150,0.4)':'rgba(20,30,40,0.5)');}
-    // Right wall - side door
-    wallQuad(rbl,rbr,rtl,rtr,0.3,0.0,0.6,0.35,'#3a4550');
-    // Right wall windows - more light up
-    for(var rw=0;rw<2;rw++){wallQuad(rbl,rbr,rtl,rtr,0.1+rw*0.45,0.5,0.4+rw*0.45,0.7,rw<lvl?'rgba(100,200,150,0.3)':'rgba(20,30,40,0.5)');}
-    // Right wall sign at high level
-    if(lvl>=4){var rs2=wallPt(rbl,rbr,rtl,rtr,0.5,0.88);ctx.save();ctx.fillStyle='#33cc44';ctx.shadowColor='#33cc44';ctx.shadowBlur=6;ctx.font='bold 6px Arial';ctx.textAlign='center';ctx.fillText('OPEN 24/7',rs2.x,rs2.y);ctx.restore();}
+    ctx.fillStyle=lvl>=3?'#33cc55':lvl>=2?'#228833':'#445';
+    if(lvl>=2){ctx.shadowColor='#22aa44';ctx.shadowBlur=3+lvl*2;}
+    ctx.font='bold '+(6+lvl)+'px Arial';ctx.textAlign='center';ctx.fillText('CHOP SHOP',cs.x,cs.y);ctx.restore();
+    // Green neon roofline at L3+
+    if(lvl>=3){ctx.save();ctx.strokeStyle='rgba(40,180,70,'+(0.2+lvl*0.06)+')';ctx.lineWidth=1;ctx.shadowColor='#22aa44';ctx.shadowBlur=4+lvl;
+      ctx.beginPath();ctx.moveTo(ltl.x,ltl.y);ctx.lineTo(ltr.x,ltr.y);ctx.stroke();ctx.restore();}
+    // Upper office windows
+    var nUW=lvl>=3?3:2;
+    for(var uw=0;uw<nUW;uw++){var uwu1=0.08+uw*(0.84/nUW),uwu2=uwu1+0.6/nUW;wallQuad(lbl,lbr,ltl,ltr,uwu1,0.78,uwu2,0.9,uw<lvl?'rgba(80,180,120,0.25)':'rgba(12,18,14,0.6)');}
+    // Right wall — corrugated + side door + windows
+    ctx.strokeStyle='rgba(0,0,0,0.05)';ctx.lineWidth=0.5;
+    for(var cg2=0.04;cg2<0.96;cg2+=0.03){var cr1=wallPt(rbl,rbr,rtl,rtr,0,cg2),cr2=wallPt(rbl,rbr,rtl,rtr,1,cg2);ctx.beginPath();ctx.moveTo(cr1.x,cr1.y);ctx.lineTo(cr2.x,cr2.y);ctx.stroke();}
+    wallQuad(rbl,rbr,rtl,rtr,0.25,0.0,0.55,0.35,'#2a3440');
+    wallQuad(rbl,rbr,rtl,rtr,0.27,0.02,0.53,0.33,'#1a2028');
+    for(var rw=0;rw<2;rw++){wallQuad(rbl,rbr,rtl,rtr,0.1+rw*0.45,0.5,0.35+rw*0.45,0.68,rw<lvl?'rgba(80,180,120,0.2)':'rgba(12,18,14,0.5)');}
+    if(lvl>=4){var rs2=wallPt(rbl,rbr,rtl,rtr,0.5,0.85);ctx.save();ctx.fillStyle='#22aa44';ctx.shadowColor='#22aa44';ctx.shadowBlur=4;ctx.font='bold 5px Arial';ctx.textAlign='center';ctx.fillText('24/7',rs2.x,rs2.y);ctx.restore();}
   } else if (key==='clothing') {
     var np=0.5+0.5*Math.sin(blockFrameCount*0.06);
     var neonA=0.4+lvl*0.12+np*0.3;
