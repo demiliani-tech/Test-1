@@ -3759,11 +3759,11 @@ const ISO_ZS = 0.65;
 let isoOffX = 0, isoOffY = 0;
 
 const BLOCK_BLDG_WORLD = [
-  { key: 'trapHouse',  wx: 30,  wy: 10,  ww: 70, wd: 50, baseH: 45, hGrow: 8, wGrow: 8, dGrow: 5 },
-  { key: 'garage',     wx: 250, wy: 0,   ww: 80, wd: 50, baseH: 35, hGrow: 5, wGrow: 10, dGrow: 4 },
-  { key: 'clothing',   wx: 490, wy: 10,  ww: 65, wd: 50, baseH: 45, hGrow: 12, wGrow: 8, dGrow: 5 },
-  { key: 'stashHouse', wx: 140, wy: 200, ww: 65, wd: 45, baseH: 40, hGrow: 6, wGrow: 8, dGrow: 5 },
-  { key: 'vault',      wx: 380, wy: 195, ww: 75, wd: 55, baseH: 45, hGrow: 7, wGrow: 7, dGrow: 4 },
+  { key: 'trapHouse',  wx: 30,  wy: 10,  ww: 40, wd: 30, baseH: 22, hGrow: 12, wGrow: 12, dGrow: 8 },
+  { key: 'garage',     wx: 250, wy: 0,   ww: 45, wd: 30, baseH: 18, hGrow: 10, wGrow: 14, dGrow: 8 },
+  { key: 'clothing',   wx: 490, wy: 10,  ww: 35, wd: 28, baseH: 24, hGrow: 14, wGrow: 12, dGrow: 8 },
+  { key: 'stashHouse', wx: 140, wy: 200, ww: 38, wd: 28, baseH: 20, hGrow: 10, wGrow: 12, dGrow: 8 },
+  { key: 'vault',      wx: 380, wy: 195, ww: 42, wd: 32, baseH: 22, hGrow: 12, wGrow: 12, dGrow: 7 },
 ];
 
 function wts(wx, wy, wz) {
@@ -4110,39 +4110,39 @@ function isoBldgContains(px, py, sil) {
 
 var ISO_BLDG_STYLES_BY_LVL = {
   trapHouse: [
-    {lw:'#4a2820',rw:'#2a1210',rf:'#5a3028',rf2:'#3a1810',trim:'#2a1208'},
-    {lw:'#4e2c22',rw:'#2e1412',rf:'#5e3228',rf2:'#3e1a12',trim:'#3a1a10'},
-    {lw:'#523018',rw:'#321815',rf:'#62362a',rf2:'#421e14',trim:'#4a2a18'},
-    {lw:'#563420',rw:'#361a18',rf:'#663a2e',rf2:'#462218',trim:'#4a3020'},
-    {lw:'#5a3828',rw:'#3a1e1a',rf:'#6a3e32',rf2:'#4a261a',trim:'#5a3828'},
+    {lw:'#3a1e14',rw:'#221008',rf:'#4a2418',rf2:'#2e1408',trim:'#1a0a04'},
+    {lw:'#3a1e14',rw:'#221008',rf:'#4a2418',rf2:'#2e1408',trim:'#1a0a04'},
+    {lw:'#3a1e14',rw:'#221008',rf:'#4a2418',rf2:'#2e1408',trim:'#1a0a04'},
+    {lw:'#3a1e14',rw:'#221008',rf:'#4a2418',rf2:'#2e1408',trim:'#1a0a04'},
+    {lw:'#3a1e14',rw:'#221008',rf:'#4a2418',rf2:'#2e1408',trim:'#1a0a04'},
   ],
   garage: [
-    {lw:'#3a4848',rw:'#1a2828',rf:'#445050',rf2:'#2a3535',trim:'#1a2525'},
-    {lw:'#3e4c4c',rw:'#1e2c2c',rf:'#485454',rf2:'#2e3838',trim:'#2a3535'},
-    {lw:'#424e4e',rw:'#222e2e',rf:'#4c5858',rf2:'#323c3c',trim:'#2a4a4a'},
-    {lw:'#465252',rw:'#263232',rf:'#505c5c',rf2:'#364040',trim:'#3a5a5a'},
-    {lw:'#4a5656',rw:'#2a3636',rf:'#546060',rf2:'#3a4444',trim:'#4a6a6a'},
+    {lw:'#2a3636',rw:'#161e1e',rf:'#323e3e',rf2:'#1e2828',trim:'#141c1c'},
+    {lw:'#2a3636',rw:'#161e1e',rf:'#323e3e',rf2:'#1e2828',trim:'#141c1c'},
+    {lw:'#2a3636',rw:'#161e1e',rf:'#323e3e',rf2:'#1e2828',trim:'#141c1c'},
+    {lw:'#2a3636',rw:'#161e1e',rf:'#323e3e',rf2:'#1e2828',trim:'#141c1c'},
+    {lw:'#2a3636',rw:'#161e1e',rf:'#323e3e',rf2:'#1e2828',trim:'#141c1c'},
   ],
   clothing: [
-    {lw:'#221038',rw:'#140820',rf:'#1a0828',rf2:'#0e0518',trim:'#8800aa'},
-    {lw:'#281440',rw:'#1a0a28',rf:'#200c30',rf2:'#14081e',trim:'#aa00cc'},
-    {lw:'#2e1848',rw:'#1e0c30',rf:'#261038',rf2:'#1a0a24',trim:'#cc00ee'},
-    {lw:'#341c50',rw:'#221038',rf:'#2c1440',rf2:'#200e2a',trim:'#dd00ff'},
-    {lw:'#3a2058',rw:'#281440',rf:'#321848',rf2:'#261230',trim:'#ee22ff'},
+    {lw:'#180a28',rw:'#100618',rf:'#140820',rf2:'#0a0410',trim:'#6600aa'},
+    {lw:'#180a28',rw:'#100618',rf:'#140820',rf2:'#0a0410',trim:'#6600aa'},
+    {lw:'#180a28',rw:'#100618',rf:'#140820',rf2:'#0a0410',trim:'#6600aa'},
+    {lw:'#180a28',rw:'#100618',rf:'#140820',rf2:'#0a0410',trim:'#6600aa'},
+    {lw:'#180a28',rw:'#100618',rf:'#140820',rf2:'#0a0410',trim:'#6600aa'},
   ],
   stashHouse: [
-    {lw:'#5a4028',rw:'#3a2418',rf:'#604830',rf2:'#3e2a18',trim:'#2a1a10'},
-    {lw:'#5e4428',rw:'#3e2818',rf:'#644c30',rf2:'#422e18',trim:'#3a2818'},
-    {lw:'#62482a',rw:'#422a1a',rf:'#685032',rf2:'#46301a',trim:'#4a3020'},
-    {lw:'#664c2c',rw:'#462c1c',rf:'#6c5434',rf2:'#4a321c',trim:'#5a3828'},
-    {lw:'#6a502e',rw:'#4a2e1e',rf:'#705836',rf2:'#4e341e',trim:'#6a4030'},
+    {lw:'#3e2a16',rw:'#28180c',rf:'#44301a',rf2:'#2a1a0c',trim:'#1a1008'},
+    {lw:'#3e2a16',rw:'#28180c',rf:'#44301a',rf2:'#2a1a0c',trim:'#1a1008'},
+    {lw:'#3e2a16',rw:'#28180c',rf:'#44301a',rf2:'#2a1a0c',trim:'#1a1008'},
+    {lw:'#3e2a16',rw:'#28180c',rf:'#44301a',rf2:'#2a1a0c',trim:'#1a1008'},
+    {lw:'#3e2a16',rw:'#28180c',rf:'#44301a',rf2:'#2a1a0c',trim:'#1a1008'},
   ],
   vault: [
-    {lw:'#404050',rw:'#282838',rf:'#484860',rf2:'#323242',trim:'#887722'},
-    {lw:'#454558',rw:'#2c2c3c',rf:'#4c4c64',rf2:'#363646',trim:'#998822'},
-    {lw:'#4a4a5e',rw:'#303040',rf:'#505068',rf2:'#3a3a4a',trim:'#aa9922'},
-    {lw:'#4e4e62',rw:'#343444',rf:'#54546c',rf2:'#3e3e4e',trim:'#bbaa33'},
-    {lw:'#525268',rw:'#383848',rf:'#585870',rf2:'#424252',trim:'#ccbb44'},
+    {lw:'#363640',rw:'#222230',rf:'#3e3e4e',rf2:'#2a2a36',trim:'#665518'},
+    {lw:'#363640',rw:'#222230',rf:'#3e3e4e',rf2:'#2a2a36',trim:'#665518'},
+    {lw:'#363640',rw:'#222230',rf:'#3e3e4e',rf2:'#2a2a36',trim:'#665518'},
+    {lw:'#363640',rw:'#222230',rf:'#3e3e4e',rf2:'#2a2a36',trim:'#665518'},
+    {lw:'#363640',rw:'#222230',rf:'#3e3e4e',rf2:'#2a2a36',trim:'#665518'},
   ],
 };
 function getIsoStyle(key, lvl) {
@@ -4310,17 +4310,13 @@ function drawBldgExteriorProps(b, lvl, key) {
 
 function drawIsoBuilding2(b, lvl, key, selected) {
   var st2 = getIsoStyle(key, lvl);
-  // Ground light pool at higher levels
+  // Subtle ambient ground shadow
   if(lvl>=2){
-    var glowColor=key==='clothing'?'rgba(200,0,255,':key==='trapHouse'&&lvl>=4?'rgba(160,60,220,':'rgba(255,180,60,';
-    if(key==='vault') glowColor='rgba(255,215,0,';
-    if(key==='garage') glowColor='rgba(50,200,80,';
-    if(key==='stashHouse'&&lvl>=4) glowColor='rgba(160,60,220,';
     var gcx=(b.gSW.x+b.gSE.x+b.gNE.x)/3, gcy=(b.gSW.y+b.gSE.y+b.gNE.y)/3;
-    var gr=ctx.createRadialGradient(gcx,gcy,0,gcx,gcy,30+lvl*8);
-    gr.addColorStop(0,glowColor+(0.06+lvl*0.02)+')');
-    gr.addColorStop(1,glowColor+'0)');
-    ctx.save();ctx.fillStyle=gr;ctx.beginPath();ctx.arc(gcx,gcy,30+lvl*8,0,Math.PI*2);ctx.fill();ctx.restore();
+    var gr=ctx.createRadialGradient(gcx,gcy,0,gcx,gcy,20+lvl*4);
+    gr.addColorStop(0,'rgba(0,0,0,0.08)');
+    gr.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.save();ctx.fillStyle=gr;ctx.beginPath();ctx.arc(gcx,gcy,20+lvl*4,0,Math.PI*2);ctx.fill();ctx.restore();
   }
   // Ground platform/foundation
   ctx.save(); ctx.globalAlpha=0.2+lvl*0.03; ctx.fillStyle='#111';
@@ -4328,17 +4324,13 @@ function drawIsoBuilding2(b, lvl, key, selected) {
   ctx.moveTo(b.gNW.x,b.gNW.y+3); ctx.lineTo(b.gNE.x,b.gNE.y+3);
   ctx.lineTo(b.gSE.x,b.gSE.y+3); ctx.lineTo(b.gSW.x,b.gSW.y+3);
   ctx.closePath(); ctx.fill(); ctx.restore();
-  // Left wall with gradient
-  var lwG=ctx.createLinearGradient(b.gSW.x,b.gSW.y,b.tSW.x,b.tSW.y);
-  lwG.addColorStop(0,st2.lw); lwG.addColorStop(1,st2.trim);
-  ctx.fillStyle=lwG; ctx.beginPath();
+  // Left wall — flat fill (no gradient)
+  ctx.fillStyle=st2.lw; ctx.beginPath();
   ctx.moveTo(b.gSW.x,b.gSW.y); ctx.lineTo(b.tSW.x,b.tSW.y);
   ctx.lineTo(b.tSE.x,b.tSE.y); ctx.lineTo(b.gSE.x,b.gSE.y);
   ctx.closePath(); ctx.fill();
-  // Right wall with gradient
-  var rwG=ctx.createLinearGradient(b.gNE.x,b.gNE.y,b.tNE.x,b.tNE.y);
-  rwG.addColorStop(0,st2.rw); rwG.addColorStop(1,st2.trim);
-  ctx.fillStyle=rwG; ctx.beginPath();
+  // Right wall — flat fill (no gradient)
+  ctx.fillStyle=st2.rw; ctx.beginPath();
   ctx.moveTo(b.gNE.x,b.gNE.y); ctx.lineTo(b.tNE.x,b.tNE.y);
   ctx.lineTo(b.tSE.x,b.tSE.y); ctx.lineTo(b.gSE.x,b.gSE.y);
   ctx.closePath(); ctx.fill();
